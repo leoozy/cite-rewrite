@@ -1,12 +1,15 @@
 import os
 import sys
 import argparse
-
+import time
 import numpy as np
 import tensorflow as tf
-
+import torch
 from model import setup_model
+from torch_data_loader import TorchDataLoader
 from data_loader import DataLoader
+import torch.multiprocessing as mp
+import pdb
 
 parser = argparse.ArgumentParser(description='Conditional Image-Text Similarity Network')
 parser.add_argument('--name', default='Conditional_Image-Text_Similarity_Network', type=str,
@@ -15,7 +18,7 @@ parser.add_argument('--dataset', default='flickr', type=str,
                     help='name of the dataset to use')
 parser.add_argument('--r_seed', type=int, default=42,
                     help='random seed (default: 42)')
-parser.add_argument('--info_iterval', type=int, default=250,
+parser.add_argument('--info_iterval', type=int, default=20,
                     help='number of batches to process before outputing training status')
 parser.add_argument('--resume', default='', type=str,
                     help='filename of model to load (default: none)')
@@ -45,8 +48,9 @@ parser.add_argument('--max_boxes', type=int, default=500,
                     help='maximum number of edge boxes per image (default: 500)')
 parser.add_argument('--num_embeddings', type=int, default=4,
                     help='number of embeddings to train (default: 4)')
-parser.add_argument('--spatial', dest='spatial', action='store_true', default=False,
+parser.add_argument('--spatial', dest='spatial', action='store_true', default=True,
                     help='Flag indicating whether to use spatial features')
+parser.add_argument('--user', dest='the location', default='zhangjl')
 
 def main():
     global args
@@ -55,18 +59,18 @@ def main():
     tf.set_random_seed(args.r_seed)
     phrase_feature_dim = 6000
     region_feature_dim = 4096
-    if args.spatial:
+    if args.spatial: 
         if args.dataset == 'flickr':
             region_feature_dim += 5
         else:
             region_feature_dim += 8
             
     # setup placeholders
-    labels_plh = tf.placeholder(tf.float32, shape=[args.batch_size, args.max_boxes])
-    phrase_plh = tf.placeholder(tf.float32, shape=[args.batch_size,
-                                                   phrase_feature_dim])
-    region_plh = tf.placeholder(tf.float32, shape=[args.batch_size, args.max_boxes,
-                                                   region_feature_dim])
+    labels_plh = tf.placeholder(tf.float32, shape=[None, args.max_boxes]) #lable ~ batch_size * max_boxes
+    phrase_plh = tf.placeholder(tf.float32, shape=[None,
+                                                   phrase_feature_dim]) # batch_size * 6000
+    region_plh = tf.placeholder(tf.float32, shape=[None, args.max_boxes,
+                                                   region_feature_dim]) # batch_size * max_boxes * 4096
     train_phase_plh = tf.placeholder(tf.bool, name='train_phase')
     num_boxes_plh = tf.placeholder(tf.int32)
     
@@ -89,13 +93,13 @@ def main():
     if not os.path.exists(save_model_directory):
         os.makedirs(save_model_directory)
 
-    train_loader = DataLoader(args, region_feature_dim, phrase_feature_dim,
+    train_loader = TorchDataLoader(args, region_feature_dim, phrase_feature_dim,
                               plh, 'train')
     val_loader = DataLoader(args, region_feature_dim, phrase_feature_dim,
                             plh, 'val')
 
     # training with Adam
-    acc, best_adam = train(model, train_loader, val_loader, args.resume)
+    acc, best_adam = train(plh, model, train_loader, test_loader, args.resume)
 
     # finetune with SGD after loading the best model trained with Adam
     best_model_filename = os.path.join('runs', args.name, 'model_best')
@@ -112,7 +116,7 @@ def test(model, test_loader, sess=None, model_name = None):
     if sess is None:
         sess = tf.Session()
         saver = tf.train.Saver()
-        saver.restore(sess, model_name)
+        saver.restore(sess, os.path.join('runs', args.name, model_name))
         
     region_weights = model[3]
     correct = 0.0
@@ -129,29 +133,38 @@ def test(model, test_loader, sess=None, model_name = None):
         test_loader.split, round(acc*100, 2)))
     return acc
 
-def process_epoch(model, train_loader, sess, train_step, epoch, suffix):
-    train_loader.shuffle()
+def process_epoch(plh,model, train_loader, sess, train_step, epoch, suffix):
+
     
     # extract elements from model tuple
     loss = model[0]
     region_loss = model[1]
     l1_loss = model[2]
+
+    trainLoader = torch.utils.data.DataLoader(train_loader,batch_size = args.batch_size, shuffle = False, num_workers = 6)
     
-    n_iterations = train_loader.num_batches()
-    for batch_id in range(n_iterations):
-        feed_dict, _, _ = train_loader.get_batch(batch_id)
+    for i, (phrase_features, region_features, is_train, max_boxes, gt_labels) in enumerate(trainLoader):
+	
+        feed_dict = {plh['phrase'] : phrase_features,
+                     plh['region'] : region_features,
+                     plh['train_phase'] : is_train[0],
+                     plh['num_boxes'] : max_boxes[0],
+                     plh['labels'] : gt_labels
+        }
+
+
         (_, total, region, concept_l1) = sess.run([train_step, loss,
                                                    region_loss, l1_loss],
                                                   feed_dict = feed_dict)
 
-        if batch_id % args.info_iterval == 0:
+        if i % args.info_iterval == 0:
             print('loss: {:.5f} (region: {:.5f} concept: {:.5f}) '
                   '[{}/{}] (epoch: {}) {}'.format(total, region, concept_l1,
-                                                  (batch_id*args.batch_size),
+                                                  (i*args.batch_size),
                                                   len(train_loader), epoch,
                                                   suffix))
-
-def train(model, train_loader, test_loader, model_weights, use_adam = True,
+            print(time.strftime('%Y-%m-%d %H:%M:%S',time.localtime(time.time())))
+def train(plh, model, train_loader, test_loader, model_weights, use_adam = True,
           best_acc = 0.):
     sess = tf.Session()
     if use_adam:
@@ -172,14 +185,14 @@ def train(model, train_loader, test_loader, model_weights, use_adam = True,
     with sess.as_default():
         init.run()
         if model_weights:
-            saver.restore(sess, model_weights)
+            saver.restore(sess, os.path.join('runs', args.name, model_weights))
             if use_adam:
                 best_acc = test(model, test_loader, sess)
 
         # model trains until args.max_epoch is reached or it no longer
         # improves on the validation set
         while (epoch - best_epoch) < args.no_gain_stop and (args.max_epoch < 1 or epoch <= args.max_epoch):
-            process_epoch(model, train_loader, sess, train_step, epoch, suffix)
+            process_epoch(plh, model, train_loader, sess, train_step, epoch, suffix)
             saver.save(sess, os.path.join('runs', args.name, 'checkpoint'),
                        global_step = epoch)
             acc = test(model, test_loader, sess)
@@ -195,4 +208,6 @@ def train(model, train_loader, test_loader, model_weights, use_adam = True,
     return best_acc, best_epoch
 
 if __name__ == '__main__':
+    #tf.device('/gpu:1')
+    os.environ['CUDA_VISIBLE_DEVICES']='1'
     main()
