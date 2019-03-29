@@ -16,9 +16,8 @@ class TorchDataLoader(Dataset):
         plh -- placeholder dictory containing the tensor inputs
         split -- the data split (i.e. 'train', 'test', 'val')
         """
-        #datafn = os.path.join('../../../../media', 'zhangjl', 'Seagate Expansion Drive/flickr','%s_imfeats.h5' % split)
-	#pdb.set_trace()
-	self.dataset = None
+
+        self.dataset = None
         self.datafn = os.path.join('../', '%s_imfeats.h5' % split)
         with h5py.File(self.datafn, 'r', swmr = True) as dataset:
 	
