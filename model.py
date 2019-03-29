@@ -1,4 +1,5 @@
 import tensorflow as tf
+import pdb
 
 def add_fc(x, outdim, train_phase_plh, scope_in):
     """Returns the output of a FC-BNORM-ReLU sequence.
@@ -92,7 +93,7 @@ def setup_model(args, phrase_plh, region_plh, train_phase_plh, labels_plh, num_b
                                        do_l2norm = False, outdim = args.num_embeddings)
     concept_loss = tf.reduce_mean(tf.norm(concept_weights, axis=1, ord=1))
     concept_weights = tf.nn.softmax(concept_weights)
-    
+   
     elementwise_prod = tf.expand_dims(phrase_embed, 1)*region_embed
     joint_embed_1 = add_fc(elementwise_prod, embed_dim, train_phase_plh, 'joint_embed_1')
     joint_embed_2 = concept_layer(joint_embed_1, final_embed, train_phase_plh, 1, concept_weights)
