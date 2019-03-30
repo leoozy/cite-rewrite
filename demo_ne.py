@@ -6,7 +6,7 @@ import numpy as np
 import tensorflow as tf
 import torch
 from model_ne import setup_model
-from torch_data_loader import TorchDataLoader
+from torch_data_loader_ne import TorchDataLoader
 from data_loader import DataLoader
 import torch.multiprocessing as mp
 import pdb
@@ -148,6 +148,9 @@ def process_epoch(plh, model, train_loader, sess, train_step, epoch, suffix, con
     region_loss = model[1]
     l1_loss = model[2]
     region_weights = model[3]
+    dneg_p = model[4]
+    dgt_p = model[5]
+    LossTrp = model[6]
     if epoch > 1:
         args.confusion = 1
     else:
@@ -167,8 +170,8 @@ def process_epoch(plh, model, train_loader, sess, train_step, epoch, suffix, con
                      }
 
 
-        (_, total, region, concept_l1, region_pro) = sess.run([train_step, loss,
-                                                   region_loss, l1_loss, region_weights],
+        (_, total, region, concept_l1, region_pro, P2neg, p2gt, TriLoss) = sess.run([train_step, loss,
+                                                   region_loss, l1_loss, region_weights, dneg_p, dgt_p, LossTrp],
                                                   feed_dict=feed_dict)
 
         if epoch % 2 == 0 or len(confusion_matrix) == 0:
@@ -181,7 +184,7 @@ def process_epoch(plh, model, train_loader, sess, train_step, epoch, suffix, con
 
                     for sind in enumerate(sort_index[0:30]):
                         if slabel[sind] < 0:
-                             confusion_matrix[phrase_name[index]] = sind
+                             confusion_matrix[phrase_name[index]].append(sind)
 
 
 
@@ -223,8 +226,6 @@ def train(plh, model, train_loader, test_loader, model_weights, use_adam=True,
         # model trains until args.max_epoch is reached or it no longer
         # improves on the validation set
         while (epoch - best_epoch) < args.no_gain_stop and (args.max_epoch < 1 or epoch <= args.max_epoch):
-            if epoch > 1:
-                args.confusion = True
             process_epoch(plh, model, train_loader, sess, train_step, epoch, suffix, confusion_matrix)
             saver.save(sess, os.path.join('runs', args.name, 'checkpoint'),
                        global_step=epoch)
