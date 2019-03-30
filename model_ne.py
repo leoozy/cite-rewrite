@@ -86,7 +86,7 @@ def cos_distance(x1, x2):
     return cos_loss
 
 
-def setup_model(args, phrase_plh, region_plh, train_phase_plh, labels_plh, num_boxes_plh, region_feature_dim, is_conf_plh, neg_region_plh, gt_plh):
+def setup_model(args, phrase_plh, region_plh, train_phase_plh, labels_plh, num_boxes_plh,  is_conf_plh, neg_region_plh, gt_plh):
     """Describes the computational graph and returns the losses and outputs.
 
     Arguments:
@@ -117,7 +117,7 @@ def setup_model(args, phrase_plh, region_plh, train_phase_plh, labels_plh, num_b
     # dp_neg = tf.expand_dims(phrase_embed, 1)
     dgt_p = cos_distance(phrase_embed, gt_region_embed)
     dneg_p = cos_distance(tf.expand_dims(phrase_embed, 1), neg_region_embed)
-    LossTrp = tf.maximum(0, 0.02 + dgt_p - dneg_p)
+    LossTrp = tf.maximum(0.00, 0.02 + dgt_p - dneg_p)
     concept_weights = embedding_branch(phrase_plh, embed_dim, train_phase_plh, 'concept_weight',
                                        do_l2norm=False, outdim=args.num_embeddings)
     concept_loss = tf.reduce_mean(tf.norm(concept_weights, axis=1, ord=1))

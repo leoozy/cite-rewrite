@@ -44,7 +44,7 @@ class TorchDataLoader(Dataset):
         self.neg_to_pos_ratio = args.neg_to_pos_ratio
         self.batch_size = args.batch_size
         self.max_boxes = args.max_boxes
-        self.gtFeaturePath = os.path.join(args.SSDpath, 'gt_feature')
+        self.gtFeaturePath = os.path.join('/media/zhangjl/ZJLSSD/', 'gt_feature')
         self.confusion_matrix = None
         if self.is_train:
             self.success_thresh = args.train_success_thresh
@@ -103,6 +103,8 @@ class TorchDataLoader(Dataset):
             region_features[:num_boxes, :] = features
             phrase_features[:] = self.w2v_dict[phrase]
             gt_labels[:num_boxes] = overlaps >= self.success_thresh
+            gt_features = None
+            neg_regions = None
             if self.is_train:
                 num_pos = int(np.sum(gt_labels[:]))
                 num_neg = num_pos * self.neg_to_pos_ratio
@@ -113,14 +115,15 @@ class TorchDataLoader(Dataset):
 
                 # logistic loss only counts a region labeled as -1 negative
                 gt_labels[negs[:num_neg]] = -1
-                if self.confusion_matrix.has_key(self.pairs[:, index]):
-                    neg_regions = []
-                    for neg_region_id in self.confusion_matrix[self.pairs:, index]:
-                        neg_regions.append(region_features[neg_region_id, :])
-                try:
-                    gt_features = np.load(os.path.join(self.gtFeaturePath, self.pairs[:, index]))
-                except Exception, e:
-                    print(e)
+                if not self.confusion_matrix is None:
+                    if self.confusion_matrix.has_key(self.pairs[:, index]):
+                        neg_regions = []
+                        for neg_region_id in self.confusion_matrix[self.pairs:, index]:
+                            neg_regions.append(region_features[neg_region_id, :])
+                    try:
+                        gt_features = np.load(os.path.join(self.gtFeaturePath, self.pairs[:, index]))
+                    except Exception, e:
+                        print(e)
         return phrase_features, region_features, self.is_train, self.max_boxes, gt_labels, '%s_%s_%s' % (
-        im_id, phrase, p_id), gt_features
+        im_id, phrase, p_id), neg_regions, gt_features
 

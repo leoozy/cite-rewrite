@@ -75,7 +75,7 @@ def main():
                                                   region_feature_dim])  # batch_size * max_boxes * 4096
     train_phase_plh = tf.placeholder(tf.bool, name='train_phase')
     num_boxes_plh = tf.placeholder(tf.int32)
-    is_conf_plh = tf.placeholder(tf.float)
+    is_conf_plh = tf.placeholder(tf.float32)
     neg_region_plh = tf.placeholder(tf.float32, shape=[None, None, region_feature_dim])
     gt_plh = tf.placeholder(tf.float32, shape=[None, 1, region_feature_dim])
     plh = {}
@@ -91,7 +91,7 @@ def main():
     test_loader = DataLoader(args, region_feature_dim, phrase_feature_dim,
                              plh, 'test')
     model = setup_model(args, phrase_plh, region_plh, train_phase_plh,
-                        labels_plh, num_boxes_plh, region_feature_dim)
+                        labels_plh, num_boxes_plh, is_conf_plh, neg_region_plh, gt_plh)
     if args.test:
         test(model, test_loader, model_name=args.resume)
         sys.exit()
@@ -154,8 +154,8 @@ def process_epoch(plh, model, train_loader, sess, train_step, epoch, suffix, con
     if epoch > 1:
         args.confusion = 1
     else:
-        args.confusion = 0
-    trainLoader = torch.utils.data.DataLoader(train_loader, batch_size=args.batch_size, shuffle=False, num_workers=1)
+        args.confusion = 1
+    trainLoader = torch.utils.data.DataLoader(train_loader, batch_size=args.batch_size, shuffle=True, num_workers=8)
 
     for i, (phrase_features, region_features, is_train, max_boxes, gt_labels, phrase_name, neg_regions, gt_features) in enumerate(trainLoader):
 
@@ -181,10 +181,9 @@ def process_epoch(plh, model, train_loader, sess, train_step, epoch, suffix, con
                 if gt_labels[index, best_region_index] != 1:
                     slabel = gt_labels[index, :] * region_pro[index, :]
                     sort_index = np.argsort(slabel)
-
-                    for sind in enumerate(sort_index[0:30]):
-                        if slabel[sind] < 0:
-                             confusion_matrix[phrase_name[index]].append(sind)
+                    sort_index = sort_index[:20]
+                    for sind in sort_index:
+                        confusion_matrix[phrase_name[index]].append(sind)
 
 
 

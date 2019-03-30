@@ -158,7 +158,7 @@ def process_epoch(plh,model, train_loader, sess, train_step, epoch, suffix):
         (_, total, region, concept_l1, region_prob) = sess.run([train_step, loss,
                                                    region_loss, l1_loss, region_weights ],
                                                   feed_dict = feed_dict)
-        a = region_prob
+
         if i % args.info_iterval == 0:
             print('loss: {:.5f} (region: {:.5f} concept: {:.5f}) '
                   '[{}/{}] (epoch: {}) {}'.format(total, region, concept_l1,
