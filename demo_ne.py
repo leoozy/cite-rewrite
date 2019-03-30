@@ -74,7 +74,7 @@ def main():
                                                   region_feature_dim])  # batch_size * max_boxes * 4096
     train_phase_plh = tf.placeholder(tf.bool, name='train_phase')
     num_boxes_plh = tf.placeholder(tf.int32)
-    is_conf_plh = tf.placeholder(tf.bool)
+    is_conf_plh = tf.placeholder(tf.float)
     neg_region_plh = tf.placeholder(tf.float32, shape=[None, None, region_feature_dim])
     gt_plh = tf.placeholder(tf.float32, shape=[None, 1, region_feature_dim])
     plh = {}
@@ -145,21 +145,23 @@ def process_epoch(plh, model, train_loader, sess, train_step, epoch, suffix, con
     region_loss = model[1]
     l1_loss = model[2]
     region_weights = model[3]
-
+    if epoch > 1:
+        args.confusion = 1
+    else:
+        args.confusion = 0
     trainLoader = torch.utils.data.DataLoader(train_loader, batch_size=args.batch_size, shuffle=False, num_workers=1)
 
-    for i, (phrase_features, region_features, is_train, max_boxes, gt_labels, phrase_name) in enumerate(trainLoader):
+    for i, (phrase_features, region_features, is_train, max_boxes, gt_labels, phrase_name, neg_regions) in enumerate(trainLoader):
 
         feed_dict = {plh['phrase']: phrase_features,
                      plh['region']: region_features,
                      plh['train_phase']: is_train[0],
                      plh['num_boxes']: max_boxes[0],
                      plh['labels']: gt_labels,
-                     plh['is_conf_plh']: 0
+                     plh['is_conf_plh']: args.confusion
                      }
 
-        if epoch > 1:
-            feed_dict[plh['is_conf_plh']] = 1
+
         (_, total, region, concept_l1, region_pro) = sess.run([train_step, loss,
                                                    region_loss, l1_loss, region_weights],
                                                   feed_dict=feed_dict)

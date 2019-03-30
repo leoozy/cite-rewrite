@@ -117,9 +117,7 @@ def setup_model(args, phrase_plh, region_plh, train_phase_plh, labels_plh, num_b
     # dp_neg = tf.expand_dims(phrase_embed, 1)
     dgt_p = cos_distance(phrase_embed, gt_region_embed)
     dneg_p = cos_distance(tf.expand_dims(phrase_embed, 1), neg_region_embed)
-    LossTrp = [0, 0.02 + dgt_p - dneg_p]
-
-
+    LossTrp = tf.maximum(0, 0.02 + dgt_p - dneg_p)
     concept_weights = embedding_branch(phrase_plh, embed_dim, train_phase_plh, 'concept_weight',
                                        do_l2norm=False, outdim=args.num_embeddings)
     concept_loss = tf.reduce_mean(tf.norm(concept_weights, axis=1, ord=1))
@@ -143,6 +141,6 @@ def setup_model(args, phrase_plh, region_plh, train_phase_plh, labels_plh, num_b
     ind_labels = tf.abs(labels_plh)
     num_samples = tf.reduce_sum(ind_labels)
     region_loss = tf.reduce_sum(tf.log(1 + tf.exp(-joint_embed_3 * labels_plh)) * ind_labels) / num_samples
-    total_loss = region_loss + concept_loss * args.embed_l1 + args.confusion * LossTrp
-    return total_loss, region_loss, concept_loss, region_prob,
+    total_loss = region_loss + concept_loss * args.embed_l1 + is_conf_plh * LossTrp
+    return total_loss, region_loss, concept_loss, region_prob, dneg_p,dgt_p, LossTrp
 

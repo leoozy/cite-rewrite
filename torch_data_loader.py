@@ -112,5 +112,5 @@ class TorchDataLoader(Dataset):
             	gt_labels[negs[:num_neg]] = -1
 
 
-        return  phrase_features, region_features, self.is_train, self.max_boxes, gt_labels, '%s_%s_%s' % (im_id, phrase, p_id)
+        return  phrase_features, region_features, self.is_train, self.max_boxes, gt_labels
 
