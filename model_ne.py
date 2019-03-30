@@ -73,14 +73,14 @@ def embedding_branch(x, embed_dim, train_phase_plh, scope_in, do_l2norm=True, ou
 
 def Euclidean_distance(x1, x2):
     # x1 = [batch, num, dim]
-    euclidean = tf.reduce_mean(tf.sqrt(tf.reduce_sum(tf.square(x1 - x2), axis = [1, 2])))
+    euclidean = tf.reduce_mean(tf.sqrt(tf.reduce_sum(tf.square(x1 - x2), axis = -1)))
     return euclidean
 
 def cos_distance(x1, x2):
-    # x1 = [batch, num, dim]
-    x1_norm = tf.sqrt(tf.reduce_sum(tf.square(x1), axis = [1, 2]))
-    x2_norm = tf.sqrt(tf.reduce_sum(tf.square(x2), axis = [1, 2]))
-    x1_x2 =  tf.reduce_sum(tf.multiply(x1, x2), axis = [1, 2])
+    # x1 = [batch, dim]
+    x1_norm = tf.sqrt(tf.reduce_sum(tf.square(x1), axis = -1))
+    x2_norm = tf.sqrt(tf.reduce_sum(tf.square(x2), axis = -1))
+    x1_x2 =  tf.reduce_sum(tf.multiply(x1, x2), axis = -1)
     cosin = tf.divide(x1_x2, tf.multiply(x1_norm, x2_norm))
     cos_loss = 1 - tf.reduce_mean(cosin)
     return cos_loss
@@ -109,13 +109,16 @@ def setup_model(args, phrase_plh, region_plh, train_phase_plh, labels_plh, num_b
     phrase_embed = embedding_branch(phrase_plh, embed_dim, train_phase_plh, 'phrase')
     input_region_feature = tf.concat([region_plh, neg_region_plh, gt_plh], 1)
     region_embed_raw = embedding_branch(input_region_feature, embed_dim, train_phase_plh, 'region')
-    num_neg_region = (neg_region_plh.shape.as_list())[1]
+    #num_neg_region = (neg_region_plh.shape.as_list())[1]
     region_embed = region_embed_raw[:, : args.max_boxes, :]
     neg_region_embed = region_embed_raw[:, :-1, :]
     gt_region_embed = region_embed_raw[:, -1, :]
     # dgt_p = tf.expand_dims(phrase_embed, 1) * tf.expand_dims(gt_region_embed, 1)
     # dp_neg = tf.expand_dims(phrase_embed, 1)
-    dgt_p_norm = tf.sqrt(tf.reduce_sum(tf.square(dgt_p), axis = [1, 2]))
+    dgt_p = cos_distance(phrase_embed, gt_region_embed)
+    dneg_p = cos_distance(tf.expand_dims(phrase_embed, 1), neg_region_embed)
+    LossTrp = [0, 0.02 + dgt_p - dneg_p]
+
 
     concept_weights = embedding_branch(phrase_plh, embed_dim, train_phase_plh, 'concept_weight',
                                        do_l2norm=False, outdim=args.num_embeddings)
@@ -140,6 +143,6 @@ def setup_model(args, phrase_plh, region_plh, train_phase_plh, labels_plh, num_b
     ind_labels = tf.abs(labels_plh)
     num_samples = tf.reduce_sum(ind_labels)
     region_loss = tf.reduce_sum(tf.log(1 + tf.exp(-joint_embed_3 * labels_plh)) * ind_labels) / num_samples
-    total_loss = region_loss + concept_loss * args.embed_l1
-    return total_loss, region_loss, concept_loss, region_prob
+    total_loss = region_loss + concept_loss * args.embed_l1 + args.confusion * LossTrp
+    return total_loss, region_loss, concept_loss, region_prob,
 

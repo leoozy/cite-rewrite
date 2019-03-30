@@ -50,7 +50,7 @@ parser.add_argument('--num_embeddings', type=int, default=4,
                     help='number of embeddings to train (default: 4)')
 parser.add_argument('--spatial', dest='spatial', action='store_true', default=True,
                     help='Flag indicating whether to use spatial features')
-parser.add_argument('--confusion', dest='the confusion', type = bool, default=False)
+parser.add_argument('--confusion', dest='the confusion', type = float, default=0)
 
 
 def main():
