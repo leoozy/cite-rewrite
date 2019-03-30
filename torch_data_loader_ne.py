@@ -44,6 +44,7 @@ class TorchDataLoader(Dataset):
         self.neg_to_pos_ratio = args.neg_to_pos_ratio
         self.batch_size = args.batch_size
         self.max_boxes = args.max_boxes
+        self.gtFeaturePath = os.path.join(args.SSDpath, 'gt_feature')
         self.confusion_matrix = None
         if self.is_train:
             self.success_thresh = args.train_success_thresh
@@ -53,7 +54,7 @@ class TorchDataLoader(Dataset):
         self.region_feature_dim = region_dim
         self.phrase_feature_dim = phrase_dim
 
-        if not confusion_matrix == None:
+        if not confusion_matrix is None:
             self.confusion_matrix = confusion_matrix
 
     def __len__(self):
@@ -116,7 +117,10 @@ class TorchDataLoader(Dataset):
                     neg_regions = []
                     for neg_region_id in self.confusion_matrix[self.pairs:, index]:
                         neg_regions.append(region_features[neg_region_id, :])
-
+                try:
+                    gt_features = np.load(os.path.join(self.gtFeaturePath, self.pairs[:, index]))
+                except Exception, e:
+                    print(e)
         return phrase_features, region_features, self.is_train, self.max_boxes, gt_labels, '%s_%s_%s' % (
-        im_id, phrase, p_id), neg_regions
+        im_id, phrase, p_id), gt_features
 

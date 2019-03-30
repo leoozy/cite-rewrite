@@ -5,7 +5,7 @@ import time
 import numpy as np
 import tensorflow as tf
 import torch
-from model import setup_model
+from model_ne import setup_model
 from torch_data_loader import TorchDataLoader
 from data_loader import DataLoader
 import torch.multiprocessing as mp
@@ -51,6 +51,7 @@ parser.add_argument('--num_embeddings', type=int, default=4,
 parser.add_argument('--spatial', dest='spatial', action='store_true', default=True,
                     help='Flag indicating whether to use spatial features')
 parser.add_argument('--confusion', dest='the confusion', type = float, default=0)
+parser.add_argument('--SSDpath', dest='the location of SSD', type = str, default= '/media/zhangjl/ZJLSSD/')
 
 
 def main():
@@ -84,6 +85,8 @@ def main():
     plh['region'] = region_plh
     plh['train_phase'] = train_phase_plh
     plh['is_conf_plh'] = is_conf_plh
+    plh['neg_region_plh'] = neg_region_plh
+    plh['gt_plh'] = gt_plh
 
     test_loader = DataLoader(args, region_feature_dim, phrase_feature_dim,
                              plh, 'test')
@@ -151,14 +154,16 @@ def process_epoch(plh, model, train_loader, sess, train_step, epoch, suffix, con
         args.confusion = 0
     trainLoader = torch.utils.data.DataLoader(train_loader, batch_size=args.batch_size, shuffle=False, num_workers=1)
 
-    for i, (phrase_features, region_features, is_train, max_boxes, gt_labels, phrase_name, neg_regions) in enumerate(trainLoader):
+    for i, (phrase_features, region_features, is_train, max_boxes, gt_labels, phrase_name, neg_regions, gt_features) in enumerate(trainLoader):
 
         feed_dict = {plh['phrase']: phrase_features,
                      plh['region']: region_features,
                      plh['train_phase']: is_train[0],
                      plh['num_boxes']: max_boxes[0],
                      plh['labels']: gt_labels,
-                     plh['is_conf_plh']: args.confusion
+                     plh['is_conf_plh']: args.confusion,
+                     plh['neg_region_plh']:neg_regions,
+                     plh['gt_plh']:gt_features
                      }
 
 
