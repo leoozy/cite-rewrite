@@ -104,7 +104,7 @@ class TorchDataLoader(Dataset):
             	num_pos = int(np.sum(gt_labels[:]))
             	num_neg = num_pos * self.neg_to_pos_ratio
             	negs = np.random.permutation(np.where(overlaps < 0.3)[0])
-                
+
             	if len(negs) < num_neg: # if not enough negatives
                 	negs = np.random.permutation(np.where(overlaps < 0.4)[0])
 
@@ -112,5 +112,5 @@ class TorchDataLoader(Dataset):
             	gt_labels[negs[:num_neg]] = -1
 
 
-        return  phrase_features, region_features, self.is_train, self.max_boxes, gt_labels,maxboxes_region_feature
+        return  phrase_features, region_features, self.is_train, self.max_boxes, gt_labels, '%s_%s_%s' % (im_id, phrase, p_id)
 

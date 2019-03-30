@@ -1,6 +1,7 @@
 import tensorflow as tf
 import pdb
 
+
 def add_fc(x, outdim, train_phase_plh, scope_in):
     """Returns the output of a FC-BNORM-ReLU sequence.
 
@@ -11,11 +12,12 @@ def add_fc(x, outdim, train_phase_plh, scope_in):
     scope_in -- scope prefix for the desired layers
     """
     l2_reg = tf.contrib.layers.l2_regularizer(0.0005)
-    fc = tf.contrib.layers.fully_connected(x, outdim, activation_fn = None,
-                                           weights_regularizer = l2_reg,
-                                           scope = scope_in + '/fc')
+    fc = tf.contrib.layers.fully_connected(x, outdim, activation_fn=None,
+                                           weights_regularizer=l2_reg,
+                                           scope=scope_in + '/fc')
     fc_bnorm = batch_norm_layer(fc, train_phase_plh, scope_in + '/bnorm')
     return tf.nn.relu(fc_bnorm, scope_in + '/relu')
+
 
 def concept_layer(x, outdim, train_phase_plh, concept_id, weights):
     """Returns the weighted value of a fully connected layer.
@@ -29,8 +31,9 @@ def concept_layer(x, outdim, train_phase_plh, concept_id, weights):
     """
     concept = add_fc(x, outdim, train_phase_plh, 'concept_%i' % concept_id)
     concept = tf.reshape(concept, [tf.shape(concept)[0], -1])
-    weighted_concept = concept * tf.expand_dims(weights[:, concept_id-1], 1)
+    weighted_concept = concept * tf.expand_dims(weights[:, concept_id - 1], 1)
     return weighted_concept
+
 
 def batch_norm_layer(x, train_phase, scope_bn):
     """Returns the output of a batch norm layer."""
@@ -42,7 +45,8 @@ def batch_norm_layer(x, train_phase, scope_bn):
                                       scope=scope_bn)
     return bn
 
-def embedding_branch(x, embed_dim, train_phase_plh, scope_in, do_l2norm = True, outdim = None):
+
+def embedding_branch(x, embed_dim, train_phase_plh, scope_in, do_l2norm=True, outdim=None):
     """Applies a pair of fully connected layers to the input tensor.
 
     Arguments:
@@ -58,16 +62,31 @@ def embedding_branch(x, embed_dim, train_phase_plh, scope_in, do_l2norm = True, 
         outdim = embed_dim
 
     l2_reg = tf.contrib.layers.l2_regularizer(0.001)
-    embed_fc2 = tf.contrib.layers.fully_connected(embed_fc1, outdim, 
-                                                  activation_fn = None,
-                                                  weights_regularizer = l2_reg,
-                                                  scope = scope_in + '_embed_2')
+    embed_fc2 = tf.contrib.layers.fully_connected(embed_fc1, outdim,
+                                                  activation_fn=None,
+                                                  weights_regularizer=l2_reg,
+                                                  scope=scope_in + '_embed_2')
     if do_l2norm:
         embed_fc2 = tf.nn.l2_normalize(embed_fc2, 1)
 
     return embed_fc2
 
-def setup_model(args, phrase_plh, region_plh, train_phase_plh, labels_plh, num_boxes_plh, region_feature_dim):
+def Euclidean_distance(x1, x2):
+    # x1 = [batch, num, dim]
+    euclidean = tf.reduce_mean(tf.sqrt(tf.reduce_sum(tf.square(x1 - x2), axis = [1, 2])))
+    return euclidean
+
+def cos_distance(x1, x2):
+    # x1 = [batch, num, dim]
+    x1_norm = tf.sqrt(tf.reduce_sum(tf.square(x1), axis = [1, 2]))
+    x2_norm = tf.sqrt(tf.reduce_sum(tf.square(x2), axis = [1, 2]))
+    x1_x2 =  tf.reduce_sum(tf.multiply(x1, x2), axis = [1, 2])
+    cosin = tf.divide(x1_x2, tf.multiply(x1_norm, x2_norm))
+    cos_loss = 1 - tf.reduce_mean(cosin)
+    return cos_loss
+
+
+def setup_model(args, phrase_plh, region_plh, train_phase_plh, labels_plh, num_boxes_plh, region_feature_dim, is_conf_plh, neg_region_plh, gt_plh):
     """Describes the computational graph and returns the losses and outputs.
 
     Arguments:
@@ -88,28 +107,39 @@ def setup_model(args, phrase_plh, region_plh, train_phase_plh, labels_plh, num_b
     final_embed = args.dim_embed
     embed_dim = final_embed * 4
     phrase_embed = embedding_branch(phrase_plh, embed_dim, train_phase_plh, 'phrase')
-    region_embed = embedding_branch(region_plh, embed_dim, train_phase_plh, 'region')
+    input_region_feature = tf.concat([region_plh, neg_region_plh, gt_plh], 1)
+    region_embed_raw = embedding_branch(input_region_feature, embed_dim, train_phase_plh, 'region')
+    num_neg_region = (neg_region_plh.shape.as_list())[1]
+    region_embed = region_embed_raw[:, : args.max_boxes, :]
+    neg_region_embed = region_embed_raw[:, :-1, :]
+    gt_region_embed = region_embed_raw[:, -1, :]
+    # dgt_p = tf.expand_dims(phrase_embed, 1) * tf.expand_dims(gt_region_embed, 1)
+    # dp_neg = tf.expand_dims(phrase_embed, 1)
+    dgt_p_norm = tf.sqrt(tf.reduce_sum(tf.square(dgt_p), axis = [1, 2]))
+
     concept_weights = embedding_branch(phrase_plh, embed_dim, train_phase_plh, 'concept_weight',
-                                       do_l2norm = False, outdim = args.num_embeddings)
+                                       do_l2norm=False, outdim=args.num_embeddings)
     concept_loss = tf.reduce_mean(tf.norm(concept_weights, axis=1, ord=1))
     concept_weights = tf.nn.softmax(concept_weights)
 
-    elementwise_prod = tf.expand_dims(phrase_embed, 1)*region_embed
+    elementwise_prod = tf.expand_dims(phrase_embed, 1) * region_embed
+
     joint_embed_1 = add_fc(elementwise_prod, embed_dim, train_phase_plh, 'joint_embed_1')
     joint_embed_2 = concept_layer(joint_embed_1, final_embed, train_phase_plh, 1, concept_weights)
-    for concept_id in range(2, args.num_embeddings+1):
+    for concept_id in range(2, args.num_embeddings + 1):
         joint_embed_2 += concept_layer(joint_embed_1, final_embed, train_phase_plh,
                                        concept_id, concept_weights)
-        
+
     joint_embed_2 = tf.reshape(joint_embed_2, [tf.shape(joint_embed_2)[0], num_boxes_plh, final_embed])
-    joint_embed_3 = tf.contrib.layers.fully_connected(joint_embed_2, 1, activation_fn=None ,
-                                                      weights_regularizer = tf.contrib.layers.l2_regularizer(0.005),
-                                                      scope = 'joint_embed_3')
+    joint_embed_3 = tf.contrib.layers.fully_connected(joint_embed_2, 1, activation_fn=None,
+                                                      weights_regularizer=tf.contrib.layers.l2_regularizer(0.005),
+                                                     scope='joint_embed_3')
     joint_embed_3 = tf.squeeze(joint_embed_3, [2])
     region_prob = 1. / (1. + tf.exp(-joint_embed_3))
-    
+
     ind_labels = tf.abs(labels_plh)
     num_samples = tf.reduce_sum(ind_labels)
-    region_loss = tf.reduce_sum(tf.log(1+tf.exp(-joint_embed_3*labels_plh))*ind_labels)/num_samples
+    region_loss = tf.reduce_sum(tf.log(1 + tf.exp(-joint_embed_3 * labels_plh)) * ind_labels) / num_samples
     total_loss = region_loss + concept_loss * args.embed_l1
     return total_loss, region_loss, concept_loss, region_prob
+
