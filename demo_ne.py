@@ -51,6 +51,8 @@ parser.add_argument('--num_embeddings', type=int, default=4,
 parser.add_argument('--spatial', dest='spatial', action='store_true', default=True,
                     help='Flag indicating whether to use spatial features')
 parser.add_argument('--confusion', dest='the confusion', type = float, default=0)
+parser.add_argument('--neg_region_num', dest='the number of selected neg', type = int, default=50)
+parser.add_argument('--data_choice', dest='the choice of the right data', type = str, default='keep')
 parser.add_argument('--SSDpath', dest='the location of SSD', type = str, default= '/media/zhangjl/ZJLSSD/')
 
 
@@ -99,9 +101,9 @@ def main():
     save_model_directory = os.path.join('runs', args.name)
     if not os.path.exists(save_model_directory):
         os.makedirs(save_model_directory)
-
+    confusion_matrix = {}
     train_loader = TorchDataLoader(args, region_feature_dim, phrase_feature_dim,
-                                   plh, 'train')
+                                   plh, 'train', confusion_matrix)
     val_loader = DataLoader(args, region_feature_dim, phrase_feature_dim,
                             plh, 'val')
 
@@ -111,7 +113,7 @@ def main():
     # finetune with SGD after loading the best model trained with Adam
     best_model_filename = os.path.join('runs', args.name, 'model_best')
     acc, best_sgd = train(model, train_loader, val_loader,
-                          best_model_filename, False, acc)
+                          best_model_filename, False, acc, confusion_matrix)
     best_epoch = best_adam + best_sgd
 
     # get performance on test set
@@ -142,7 +144,7 @@ def test(model, test_loader, sess=None, model_name=None):
     return acc
 
 
-def process_epoch(plh, model, train_loader, sess, train_step, epoch, suffix, confusion_matrix):
+def process_epoch(plh, model, train_loader, sess, train_step, epoch, suffix, confusion_matrix = None):
     # extract elements from model tuple
     loss = model[0]
     region_loss = model[1]
@@ -152,9 +154,9 @@ def process_epoch(plh, model, train_loader, sess, train_step, epoch, suffix, con
     dgt_p = model[5]
     LossTrp = model[6]
     if epoch > 1:
-        args.confusion = 1
+        args.confusion = 0.
     else:
-        args.confusion = 1
+        args.confusion = 1.
     trainLoader = torch.utils.data.DataLoader(train_loader, batch_size=args.batch_size, shuffle=True, num_workers=8)
 
     for i, (phrase_features, region_features, is_train, max_boxes, gt_labels, phrase_name, neg_regions, gt_features) in enumerate(trainLoader):
@@ -165,8 +167,8 @@ def process_epoch(plh, model, train_loader, sess, train_step, epoch, suffix, con
                      plh['num_boxes']: max_boxes[0],
                      plh['labels']: gt_labels,
                      plh['is_conf_plh']: args.confusion,
-                     plh['neg_region_plh']:neg_regions,
-                     plh['gt_plh']:gt_features
+                     plh['neg_region_plh']: neg_regions,
+                     plh['gt_plh']: gt_features
                      }
 
 
@@ -174,16 +176,25 @@ def process_epoch(plh, model, train_loader, sess, train_step, epoch, suffix, con
                                                    region_loss, l1_loss, region_weights, dneg_p, dgt_p, LossTrp],
                                                   feed_dict=feed_dict)
 
-        if epoch % 2 == 0 or len(confusion_matrix) == 0:
+        if epoch % 3 == 0:
             for index in range(np.shape(region_weights)[0]):
-                confusion_matrix[phrase_name[index]] = []
                 best_region_index = np.argmax(region_pro[index, :])
                 if gt_labels[index, best_region_index] != 1:
+                    confusion_matrix[phrase_name[index]] = []
                     slabel = gt_labels[index, :] * region_pro[index, :]
                     sort_index = np.argsort(slabel)
-                    sort_index = sort_index[:20]
-                    for sind in sort_index:
-                        confusion_matrix[phrase_name[index]].append(sind)
+                    num = 0
+                    while( num < 30 ):
+                        if region_pro[sort_index[num]] > 0:
+                            break
+                        confusion_matrix[phrase_name[index]] .append(sort_index[num])
+                        num += 1
+                    while(num < 30):
+                        confusion_matrix[phrase_name[index]].append(sort_index[0])
+                        num += 1
+                else:
+                    if phrase_name[index] in confusion_matrix.keys():
+                        del confusion_matrix[phrase_name[index]]
 
 
 
@@ -198,7 +209,7 @@ def process_epoch(plh, model, train_loader, sess, train_step, epoch, suffix, con
 
 
 def train(plh, model, train_loader, test_loader, model_weights, use_adam=True,
-          best_acc=0.):
+          best_acc=0., confusion_matrix = None):
     sess = tf.Session()
     if use_adam:
         optim = tf.train.AdamOptimizer(args.lr)
@@ -206,7 +217,7 @@ def train(plh, model, train_loader, test_loader, model_weights, use_adam=True,
     else:
         optim = tf.train.GradientDescentOptimizer(args.lr / 10.)
         suffix = 'ft'
-    confusion_matrix = {}
+
     weights_norm = tf.losses.get_regularization_losses()
     weights_norm_sum = tf.add_n(weights_norm)
     loss = model[0]
