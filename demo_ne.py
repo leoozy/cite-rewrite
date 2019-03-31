@@ -24,7 +24,7 @@ parser.add_argument('--resume', default='', type=str,
                     help='filename of model to load (default: none)')
 parser.add_argument('--test', dest='test', action='store_true', default=False,
                     help='Run model on test set')
-parser.add_argument('--batch-size', type=int, default=200,
+parser.add_argument('--batch-size', type=int, default=20,
                     help='input batch size for training (default: 200)')
 parser.add_argument('--lr', type=float, default=5e-5, metavar='LR',
                     help='learning rate (default: 5e-5)')
@@ -50,10 +50,9 @@ parser.add_argument('--num_embeddings', type=int, default=4,
                     help='number of embeddings to train (default: 4)')
 parser.add_argument('--spatial', dest='spatial', action='store_true', default=True,
                     help='Flag indicating whether to use spatial features')
-parser.add_argument('--confusion', dest='the confusion', type = float, default=0)
-parser.add_argument('--neg_region_num', dest='the number of selected neg', type = int, default=50)
-parser.add_argument('--data_choice', dest='the choice of the right data', type = str, default='keep')
-parser.add_argument('--SSDpath', dest='the location of SSD', type = str, default= '/media/zhangjl/ZJLSSD/')
+parser.add_argument('--confusion', dest='confusion', type=float, default=0)
+parser.add_argument('--neg_region_num', dest='neg_region_num', type=int, default=20)
+parser.add_argument('--data_choice', dest='data_choice', type=str, default='keep')
 
 
 def main():
@@ -74,10 +73,10 @@ def main():
     phrase_plh = tf.placeholder(tf.float32, shape=[None,
                                                    phrase_feature_dim])  # batch_size * 6000
     region_plh = tf.placeholder(tf.float32, shape=[None, args.max_boxes,
-                                                  region_feature_dim])  # batch_size * max_boxes * 4096
+                                                   region_feature_dim])  # batch_size * max_boxes * 4096
     train_phase_plh = tf.placeholder(tf.bool, name='train_phase')
     num_boxes_plh = tf.placeholder(tf.int32)
-    is_conf_plh = tf.placeholder(tf.float32)
+    is_conf_plh = tf.placeholder(None, tf.float32)
     neg_region_plh = tf.placeholder(tf.float32, shape=[None, None, region_feature_dim])
     gt_plh = tf.placeholder(tf.float32, shape=[None, 1, region_feature_dim])
     plh = {}
@@ -101,6 +100,7 @@ def main():
     save_model_directory = os.path.join('runs', args.name)
     if not os.path.exists(save_model_directory):
         os.makedirs(save_model_directory)
+    # pdb.set_trace()
     confusion_matrix = {}
     train_loader = TorchDataLoader(args, region_feature_dim, phrase_feature_dim,
                                    plh, 'train', confusion_matrix)
@@ -108,12 +108,12 @@ def main():
                             plh, 'val')
 
     # training with Adam
-    acc, best_adam = train(plh, model, train_loader, test_loader, args.resume)
+    acc, best_adam = train(plh, model, train_loader, test_loader, args.resume, confusion_matrix=confusion_matrix)
 
     # finetune with SGD after loading the best model trained with Adam
     best_model_filename = os.path.join('runs', args.name, 'model_best')
-    acc, best_sgd = train(model, train_loader, val_loader,
-                          best_model_filename, False, acc, confusion_matrix)
+    acc, best_sgd = train(plh, model, train_loader, test_loader,
+                          best_model_filename, False, acc, confusion_matrix=confusion_matrix)
     best_epoch = best_adam + best_sgd
 
     # get performance on test set
@@ -144,7 +144,7 @@ def test(model, test_loader, sess=None, model_name=None):
     return acc
 
 
-def process_epoch(plh, model, train_loader, sess, train_step, epoch, suffix, confusion_matrix = None):
+def process_epoch(plh, model, train_loader, sess, train_step, epoch, suffix, confusion_matrix=None):
     # extract elements from model tuple
     loss = model[0]
     region_loss = model[1]
@@ -157,47 +157,46 @@ def process_epoch(plh, model, train_loader, sess, train_step, epoch, suffix, con
         args.confusion = 0.
     else:
         args.confusion = 1.
-    trainLoader = torch.utils.data.DataLoader(train_loader, batch_size=args.batch_size, shuffle=True, num_workers=8)
+    trainLoader = torch.utils.data.DataLoader(train_loader, batch_size=args.batch_size, shuffle=True, num_workers=1)
 
-    for i, (phrase_features, region_features, is_train, max_boxes, gt_labels, phrase_name, neg_regions, gt_features) in enumerate(trainLoader):
+    for i, (phrase_features, region_features, is_train, max_boxes,
+            gt_labels, phrase_name, neg_regions, gt_features, is_conf_plh) in enumerate(trainLoader):
 
         feed_dict = {plh['phrase']: phrase_features,
                      plh['region']: region_features,
                      plh['train_phase']: is_train[0],
                      plh['num_boxes']: max_boxes[0],
                      plh['labels']: gt_labels,
-                     plh['is_conf_plh']: args.confusion,
+                     plh['is_conf_plh']: is_conf_plh,
                      plh['neg_region_plh']: neg_regions,
                      plh['gt_plh']: gt_features
                      }
 
-
         (_, total, region, concept_l1, region_pro, P2neg, p2gt, TriLoss) = sess.run([train_step, loss,
-                                                   region_loss, l1_loss, region_weights, dneg_p, dgt_p, LossTrp],
-                                                  feed_dict=feed_dict)
+                                                                                     region_loss, l1_loss,
+                                                                                     region_weights, dneg_p, dgt_p,
+                                                                                     LossTrp],
+                                                                                    feed_dict=feed_dict)
 
-        if epoch % 3 == 0:
-            for index in range(np.shape(region_weights)[0]):
+        if epoch > 0:
+            for index in range(np.shape(region_pro)[0]):
                 best_region_index = np.argmax(region_pro[index, :])
                 if gt_labels[index, best_region_index] != 1:
                     confusion_matrix[phrase_name[index]] = []
-                    slabel = gt_labels[index, :] * region_pro[index, :]
+                    slabel = gt_labels[index, :].numpy() * region_pro[index, :]
                     sort_index = np.argsort(slabel)
                     num = 0
-                    while( num < 30 ):
-                        if region_pro[sort_index[num]] > 0:
+                    while (num < args.neg_region_num):
+                        if slabel[sort_index[num]] >= 0:
                             break
-                        confusion_matrix[phrase_name[index]] .append(sort_index[num])
+                        confusion_matrix[phrase_name[index]].append(sort_index[num])
                         num += 1
-                    while(num < 30):
+                    while (num < args.neg_region_num):
                         confusion_matrix[phrase_name[index]].append(sort_index[0])
                         num += 1
                 else:
                     if phrase_name[index] in confusion_matrix.keys():
                         del confusion_matrix[phrase_name[index]]
-
-
-
 
         if i % args.info_iterval == 0:
             print('loss: {:.5f} (region: {:.5f} concept: {:.5f}) '
@@ -209,8 +208,9 @@ def process_epoch(plh, model, train_loader, sess, train_step, epoch, suffix, con
 
 
 def train(plh, model, train_loader, test_loader, model_weights, use_adam=True,
-          best_acc=0., confusion_matrix = None):
+          best_acc=0., confusion_matrix=None):
     sess = tf.Session()
+    # pdb.set_trace()
     if use_adam:
         optim = tf.train.AdamOptimizer(args.lr)
         suffix = ''

@@ -104,24 +104,26 @@ class TorchDataLoader(Dataset):
             phrase_features[:] = self.w2v_dict[phrase]
             gt_labels[:num_boxes] = overlaps >= self.success_thresh
 
-
+            neg_regions = []
+            gt_features = []
+            is_conf_plh = self.args.confusion
             if self.is_train:
                 num_pos = int(np.sum(gt_labels[:]))
                 num_neg = num_pos * self.neg_to_pos_ratio
                 negs = np.random.permutation(np.where(overlaps < 0.3)[0])
-
+                phrase_name = '%s_%s_%s' % (im_id, phrase, p_id)
                 if len(negs) < num_neg:  # if not enough negatives
                     negs = np.random.permutation(np.where(overlaps < 0.4)[0])
 
                 # logistic loss only counts a region labeled as -1 negative
                 gt_labels[negs[:num_neg]] = -1
                 if self.args.confusion != 0.:
-                    if self.pairs[:, index] in self.confusion_matrix.keys():
-                        neg_regions = []
-                        for neg_region_id in self.confusion_matrix[self.pairs[:, index]]:
+                    if phrase_name in self.confusion_matrix.keys():
+
+                        for neg_region_id in self.confusion_matrix[phrase_name]:
                             neg_regions.append(region_features[neg_region_id, :])
                     try:
-                        gt_features = np.load(os.path.join(self.gtFeaturePath, self.pairs[:, index]))
+                        gt_features = np.load(os.path.join(self.gtFeaturePath, phrase_name+'.npy'))
                     except Exception, e:
                         print(e)
                     else:
@@ -130,7 +132,7 @@ class TorchDataLoader(Dataset):
                 else:
                     neg_regions = np.zeros([self.args.neg_region_num, self.region_feature_dim])
                     gt_features = np.zeros([1, self.region_feature_dim])
-
-        return phrase_features, region_features, self.is_train, self.max_boxes, gt_labels, '%s_%s_%s' % (
-        im_id, phrase, p_id), neg_regions, gt_features
+                    is_conf_plh = 0.
+        
+        return phrase_features, region_features, self.is_train, self.max_boxes, gt_labels, phrase_name, neg_regions, gt_features, is_conf_plh
 
