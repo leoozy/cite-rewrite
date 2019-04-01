@@ -8,6 +8,7 @@ import torch
 from model_ne import setup_model
 from torch_data_loader_ne import TorchDataLoader
 from data_loader import DataLoader
+from random import shuffle
 import torch.multiprocessing as mp
 import pdb
 
@@ -54,8 +55,6 @@ parser.add_argument('--confusion', dest='confusion', type=float, default=0)
 parser.add_argument('--neg_region_num', dest='neg_region_num', type=int, default=20)
 
 
-
-
 def main():
     global args
     args = parser.parse_args()
@@ -89,7 +88,6 @@ def main():
     plh['is_conf_plh'] = is_conf_plh
     plh['neg_region_plh'] = neg_region_plh
     plh['gt_plh'] = gt_plh
-
     test_loader = DataLoader(args, region_feature_dim, phrase_feature_dim,
                              plh, 'test')
     model = setup_model(args, phrase_plh, region_plh, train_phase_plh,
@@ -101,7 +99,7 @@ def main():
     save_model_directory = os.path.join('runs', args.name)
     if not os.path.exists(save_model_directory):
         os.makedirs(save_model_directory)
-    # pdb.set_trace()
+
     confusion_matrix = {}
     train_loader = TorchDataLoader(args, region_feature_dim, phrase_feature_dim,
                                    plh, 'train', confusion_matrix)
@@ -144,6 +142,19 @@ def test(model, test_loader, sess=None, model_name=None):
         test_loader.split, round(acc * 100, 2)))
     return acc
 
+def getBatchSampler():
+    length = 427226
+    chunk_size = 0
+    raw_ind = [l for l in range(length)]
+    num_batch = length // args.batch_size
+    shuffle(raw_ind)
+    shu_batch = []
+    for i in range(num_batch):
+        temp = raw_ind[i*args.batch_size: (i+1)*args.batch_size]
+        shu_batch.append(temp)
+    shu_batch.append(raw_ind[(i+1)*args.batch_size:])
+    return shu_batch
+
 
 def process_epoch(plh, model, train_loader, sess, train_step, epoch, suffix, confusion_matrix=None):
     # extract elements from model tuple
@@ -158,11 +169,15 @@ def process_epoch(plh, model, train_loader, sess, train_step, epoch, suffix, con
         args.confusion = 0.
     else:
         args.confusion = 0.
-    trainLoader = torch.utils.data.DataLoader(train_loader, batch_size=args.batch_size, shuffle=True, num_workers=8)
-    print(time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time())))
+    batch_sa = getBatchSampler()
+    trainLoader = torch.utils.data.DataLoader(train_loader, batch_sampler = batch_sa , num_workers=6)
+
     for i, (phrase_features, region_features, is_train, max_boxes,
-            gt_labels, phrase_name, neg_regions, gt_features, is_conf_plh, time1, time2, time3) in enumerate(trainLoader):
-        print("p1: ", np.sum(time1), "p2: ", np.sum(time2), "p3: ", np.sum(time3))
+            gt_labels, phrase_name, neg_regions, gt_features, is_conf_plh, time1, time2, time3, time4, time5) in enumerate(trainLoader):
+        np.save('time11.npy', time1)
+        np.save('time22.npy',time2)
+
+        print("p1: ", time1.sum(), "p2: ", time2.sum(), "p3: ", time3.sum(),"p4: ", time4.sum(),"p5: ", time5.sum())
         feed_dict = {plh['phrase']: phrase_features,
                      plh['region']: region_features,
                      plh['train_phase']: is_train[0],
@@ -179,6 +194,7 @@ def process_epoch(plh, model, train_loader, sess, train_step, epoch, suffix, con
                                                                                      LossTrp],
                                                                                     feed_dict=feed_dict)
         print(time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time())))
+
         if epoch > 0:
             for index in range(np.shape(region_pro)[0]):
                 best_region_index = np.argmax(region_pro[index, :])
@@ -198,7 +214,6 @@ def process_epoch(plh, model, train_loader, sess, train_step, epoch, suffix, con
                 else:
                     if phrase_name[index] in confusion_matrix.keys():
                         del confusion_matrix[phrase_name[index]]
-        print(time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time())))
         if i % args.info_iterval == 0:
             print('loss: {:.5f} (region: {:.5f} concept: {:.5f}) '
                   '[{}/{}] (epoch: {}) {}'.format(total, region, concept_l1,
@@ -211,7 +226,6 @@ def process_epoch(plh, model, train_loader, sess, train_step, epoch, suffix, con
 def train(plh, model, train_loader, test_loader, model_weights, use_adam=True,
           best_acc=0., confusion_matrix=None):
     sess = tf.Session()
-    # pdb.set_trace()
     if use_adam:
         optim = tf.train.AdamOptimizer(args.lr)
         suffix = ''
@@ -237,7 +251,7 @@ def train(plh, model, train_loader, test_loader, model_weights, use_adam=True,
         # model trains until args.max_epoch is reached or it no longer
         # improves on the validation set
         while (epoch - best_epoch) < args.no_gain_stop and (args.max_epoch < 1 or epoch <= args.max_epoch):
-            process_epoch(plh, model, train_loader, sess, train_step, epoch, suffix, confusion_matrix)
+            process_epoch(plh, model, train_loader, sess, train_step, epoch, suffix,  confusion_matrix)
             saver.save(sess, os.path.join('runs', args.name, 'checkpoint'),
                        global_step=epoch)
             acc = test(model, test_loader, sess)
@@ -255,5 +269,5 @@ def train(plh, model, train_loader, test_loader, model_weights, use_adam=True,
 
 if __name__ == '__main__':
     # tf.device('/gpu:1')
-    os.environ['CUDA_VISIBLE_DEVICES'] = '0'
+    os.environ['CUDA_VISIBLE_DEVICES'] = '1'
     main()

@@ -116,7 +116,7 @@ def setup_model(args, phrase_plh, region_plh, train_phase_plh, labels_plh, num_b
     # dgt_p = tf.expand_dims(phrase_embed, 1) * tf.expand_dims(gt_region_embed, 1)
     # dp_neg = tf.expand_dims(phrase_embed, 1)
     dgt_p = cos_distance(phrase_embed, gt_region_embed, is_conf_plh)
-    dneg_p = cos_distance(tf.expand_dims(phrase_embed, 1), neg_region_embed, * is_conf_plh)
+    dneg_p = cos_distance(tf.expand_dims(phrase_embed, 1), neg_region_embed,  is_conf_plh)
 
     LossTrp = tf.maximum(0.00, 0.02 + dgt_p - dneg_p)
     concept_weights = embedding_branch(phrase_plh, embed_dim, train_phase_plh, 'concept_weight',

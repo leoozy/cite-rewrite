@@ -3,40 +3,43 @@ import os
 import cv2
 import torch
 from torch.utils.data import Dataset
+import h5py
+import time
+from random import shuffle
 
 class TorchDataLoader(Dataset):
     """Class minibatches from data on disk in HDF5 format"""
 
-    def __init__(self, image_path, test_dict):
-        self.image_path = image_path
-        self.images = []
-        self.dict = test_dict
-     #   for _,_,files in os.walk(self.image_path):
-     #       for file in files:
-      #          self.images.append(file)
+    def __init__(self):
+        split = 'train'
+        self.datafn = os.path.join('../', '%s_imfeats.h5' % split)
+        with h5py.File(self.datafn, 'r', swmr=True) as dataset:
+            self.phrases = list(dataset['phrases'])
+            self.pairs = list(dataset['pairs'])
     def __len__(self):
-        return 4
+        return len(self.phrases)
 
     def __getitem__(self, index):
-        #imagename = self.images[index]
-        get_image =  cv2.imread(os.path.join(self.image_path, imagename))
+        with h5py.File(self.datafn, 'r', swmr=True) as dataset:
+            im_id = self.pairs[0][index]
+            features = np.array(dataset[im_id], np.float32)[:500]
 
-        return get_image
-def changedict(dict):
-    train_loader = TorchDataLoader(image_dir, dict)
-    dict = {
-        1: 10,
-        2: 20,
-        3: 30,
-        4: 40
-    }
-    trainLoader = torch.utils.data.DataLoader(train_loader, batch_size=1, shuffle=False, num_workers=8)
-    a = []
-    for i, image in enumerate(train_loader):
-        a.append(image)
-        c =1
+        return features
+
 if __name__ == "__main__":
-
-    image_dir = '/media/zhangjl/Seagate Expansion Drive/flickr30k/Flickr30kEntities/Images'
-    dict = {}
-    changedict(dict)
+  #  train_loader = TorchDataLoader()
+    #trainLoader = torch.utils.data.DataLoader(train_loader, batch_size=1, shuffle=False, num_workers=8)
+    a = []
+    train_loader = TorchDataLoader()
+    aa = [i for i in range(100)]
+    shuffle(aa)
+    trainLoader = torch.utils.data.DataLoader(train_loader, batch_sampler= [aa, aa], num_workers=8)
+    start = time.time()
+    i = 0
+    for i , f in enumerate(trainLoader):
+        a.append(f)
+        if i > 200:
+            break
+    print(len(a[0]))
+    end = time.time()
+    print(end - start)

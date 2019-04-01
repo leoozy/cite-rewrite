@@ -1,8 +1,8 @@
 import numpy as np
 import h5py
 import os
-import torch
 import pdb
+import time
 from torch.utils.data import Dataset
 
 
@@ -37,7 +37,6 @@ class TorchDataLoader(Dataset):
             self.pairs = list(dataset['pairs'])
         self.n_pairs = len(self.pairs[0])
         self.pair_index = range(self.n_pairs)
-
         self.split = split
         self.plh = plh
         self.is_train = split == 'train'
@@ -71,6 +70,7 @@ class TorchDataLoader(Dataset):
         gt_labels -- indicates positive/negative regions
         num_pairs -- number of pairs without padding
         """
+
         with h5py.File(self.datafn, 'r', swmr=True) as dataset:
 
             region_features = np.zeros((self.max_boxes,
@@ -90,23 +90,28 @@ class TorchDataLoader(Dataset):
 
             # phrase instance identifier
             p_id = self.pairs[2][index]
-
+            start1 = time.time()
             # gets region features
             features = np.array(dataset[im_id], np.float32)
+            start2 = time.time()
             num_boxes = min(len(features), self.max_boxes)
+            start3 = time.time()
             features = features[:num_boxes, :self.region_feature_dim]
+            start4 = time.time()
             overlaps = np.array(dataset['%s_%s_%s' % (im_id, phrase, p_id)])
-
+            start5 = time.time()
             # last 4 dimensions of overlaps are ground truth box coordinates
             assert (num_boxes <= len(overlaps) - 4)
             overlaps = overlaps[:num_boxes]
             region_features[:num_boxes, :] = features
             phrase_features[:] = self.w2v_dict[phrase]
             gt_labels[:num_boxes] = overlaps >= self.success_thresh
-
+            start6 = time.time()
             neg_regions = []
             gt_features = []
             is_conf_plh = self.args.confusion
+
+         #   print(time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time())))
             if self.is_train:
                 num_pos = int(np.sum(gt_labels[:]))
                 num_neg = num_pos * self.neg_to_pos_ratio
@@ -117,22 +122,34 @@ class TorchDataLoader(Dataset):
 
                 # logistic loss only counts a region labeled as -1 negative
                 gt_labels[negs[:num_neg]] = -1
-                if self.args.confusion != 0.:
-                    if phrase_name in self.confusion_matrix.keys():
 
-                        for neg_region_id in self.confusion_matrix[phrase_name]:
+
+        if self.args.confusion != 0.:
+            if phrase_name in self.confusion_matrix.keys():
+
+                for neg_region_id in self.confusion_matrix[phrase_name]:
                             neg_regions.append(region_features[neg_region_id, :])
-                    try:
-                        gt_features = np.load(os.path.join(self.gtFeaturePath, phrase_name+'.npy'))
-                    except Exception, e:
-                        print(e)
-                    else:
-                        neg_regions = np.zeros([self.args.neg_region_num, self.region_feature_dim])
-                        gt_features = np.zeros([1, self.region_feature_dim])
-                else:
-                    neg_regions = np.zeros([self.args.neg_region_num, self.region_feature_dim])
-                    gt_features = np.zeros([1, self.region_feature_dim])
-                    is_conf_plh = 0.
-        
-        return phrase_features, region_features, self.is_train, self.max_boxes, gt_labels, phrase_name, neg_regions, gt_features, is_conf_plh
+            try:
+                gt_features = np.load(os.path.join(self.gtFeaturePath, phrase_name+'.npy'))
+            except Exception, e:
+                print(e)
+            else:
+                neg_regions = np.zeros([self.args.neg_region_num, self.region_feature_dim])
+                gt_features = np.zeros([1, self.region_feature_dim])
+        else:
+            neg_regions = np.zeros([self.args.neg_region_num, self.region_feature_dim])
+            gt_features = np.zeros([1, self.region_feature_dim])
+            is_conf_plh = 0.
+
+
+        time1 = start2 - start1
+        time2 = start3 - start2
+        time3 = start4 - start3
+        time4 = start5 - start4
+        time5 = start6 - start5
+
+
+        return phrase_features, region_features, self.is_train, self.max_boxes, gt_labels, phrase_name, neg_regions, gt_features, is_conf_plh, time1, time2, time3, time4, time5
+        #return phrase_features, region_features, self.is_train, self.max_boxes, gt_labels
+
 

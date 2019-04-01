@@ -20,11 +20,11 @@ parser.add_argument('--r_seed', type=int, default=42,
                     help='random seed (default: 42)')
 parser.add_argument('--info_iterval', type=int, default=20,
                     help='number of batches to process before outputing training status')
-parser.add_argument('--resume', default='model_best', type=str,
+parser.add_argument('--resume', default='', type=str,
                     help='filename of model to load (default: none)')
 parser.add_argument('--test', dest='test', action='store_true', default=False,
                     help='Run model on test set')
-parser.add_argument('--batch-size', type=int, default=200,
+parser.add_argument('--batch-size', type=int, default=120,
                     help='input batch size for training (default: 200)')
 parser.add_argument('--lr', type=float, default=5e-5, metavar='LR',
                     help='learning rate (default: 5e-5)')
@@ -143,7 +143,7 @@ def process_epoch(plh,model, train_loader, sess, train_step, epoch, suffix):
     region_weights = model[3]
 
 
-    trainLoader = torch.utils.data.DataLoader(train_loader,batch_size = args.batch_size, shuffle = True, num_workers = 1)
+    trainLoader = torch.utils.data.DataLoader(train_loader,batch_size = args.batch_size, shuffle = True, num_workers = 8)
     
     for i, (phrase_features, region_features, is_train, max_boxes, gt_labels) in enumerate(trainLoader):
 	
@@ -158,11 +158,6 @@ def process_epoch(plh,model, train_loader, sess, train_step, epoch, suffix):
         (_, total, region, concept_l1, region_prob) = sess.run([train_step, loss,
                                                    region_loss, l1_loss, region_weights ],
                                                   feed_dict = feed_dict)
-        rep = np.sort(-1*region_prob)
-        for i, re in enumerate(rep):
-            print(re)
-            if i > 20:
-                break
         if i % args.info_iterval == 0:
             print('loss: {:.5f} (region: {:.5f} concept: {:.5f}) '
                   '[{}/{}] (epoch: {}) {}'.format(total, region, concept_l1,
@@ -215,5 +210,5 @@ def train(plh, model, train_loader, test_loader, model_weights, use_adam = True,
 
 if __name__ == '__main__':
     #tf.device('/gpu:1')
-    os.environ['CUDA_VISIBLE_DEVICES']='0'
+    os.environ['CUDA_VISIBLE_DEVICES']='1'
     main()
