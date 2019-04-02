@@ -81,7 +81,7 @@ def cos_distance(x1, x2, is_conf_plh):
     x1_norm = tf.sqrt(tf.reduce_sum(tf.square(x1), axis = -1))
     x2_norm = tf.sqrt(tf.reduce_sum(tf.square(x2), axis = -1))
     x1_x2 =  tf.reduce_sum(tf.multiply(x1, x2), axis = -1)
-    cosin = tf.divide(x1_x2, tf.multiply(x1_norm, x2_norm)+1e-9) * is_conf_plh
+    cosin = tf.reduce_mean(tf.divide(x1_x2, tf.multiply(x1_norm, x2_norm)+1e-9))* is_conf_plh
     cos_loss = 1 - tf.reduce_mean(cosin)
     return cos_loss
 

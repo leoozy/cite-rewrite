@@ -21,11 +21,11 @@ parser.add_argument('--r_seed', type=int, default=42,
                     help='random seed (default: 42)')
 parser.add_argument('--info_iterval', type=int, default=20,
                     help='number of batches to process before outputing training status')
-parser.add_argument('--resume', default='', type=str,
+parser.add_argument('--resume', default='model_best', type=str,
                     help='filename of model to load (default: none)')
 parser.add_argument('--test', dest='test', action='store_true', default=False,
                     help='Run model on test set')
-parser.add_argument('--batch-size', type=int, default=120,
+parser.add_argument('--batch-size', type=int, default=50,
                     help='input batch size for training (default: 200)')
 parser.add_argument('--lr', type=float, default=5e-6, metavar='LR',
                     help='learning rate (default: 5e-6)')
@@ -53,7 +53,7 @@ parser.add_argument('--spatial', dest='spatial', action='store_true', default=Tr
                     help='Flag indicating whether to use spatial features')
 parser.add_argument('--confusion', dest='confusion', type=float, default=0)
 parser.add_argument('--neg_region_num', dest='neg_region_num', type=int, default=20)
-
+parser.add_argument('--region_feature_dim', dest='region_feature_dim', type=int, default=4096)
 
 def main():
     global args
@@ -61,24 +61,24 @@ def main():
     np.random.seed(args.r_seed)
     tf.set_random_seed(args.r_seed)
     phrase_feature_dim = 6000
-    region_feature_dim = 4096
+    args.region_feature_dim = 4096
     if args.spatial:
         if args.dataset == 'flickr':
-            region_feature_dim += 5
+            args.region_feature_dim += 5
         else:
-            region_feature_dim += 8
+            args.region_feature_dim += 8
 
     # setup placeholders
     labels_plh = tf.placeholder(tf.float32, shape=[None, args.max_boxes])  # lable ~ batch_size * max_boxes
     phrase_plh = tf.placeholder(tf.float32, shape=[None,
                                                    phrase_feature_dim])  # batch_size * 6000
     region_plh = tf.placeholder(tf.float32, shape=[None, args.max_boxes,
-                                                   region_feature_dim])  # batch_size * max_boxes * 4096
+                                                   args.region_feature_dim])  # batch_size * max_boxes * 4096
     train_phase_plh = tf.placeholder(tf.bool, name='train_phase')
     num_boxes_plh = tf.placeholder(tf.int32)
     is_conf_plh = tf.placeholder(tf.float32, shape=[None])
-    neg_region_plh = tf.placeholder(tf.float32, shape=[None, None, region_feature_dim])
-    gt_plh = tf.placeholder(tf.float32, shape=[None, 1, region_feature_dim])
+    neg_region_plh = tf.placeholder(tf.float32, shape=[None, None, args.region_feature_dim])
+    gt_plh = tf.placeholder(tf.float32, shape=[None, 1, args.region_feature_dim])
     plh = {}
     plh['num_boxes'] = num_boxes_plh
     plh['labels'] = labels_plh
@@ -88,12 +88,12 @@ def main():
     plh['is_conf_plh'] = is_conf_plh
     plh['neg_region_plh'] = neg_region_plh
     plh['gt_plh'] = gt_plh
-    test_loader = DataLoader(args, region_feature_dim, phrase_feature_dim,
+    test_loader = DataLoader(args, args.region_feature_dim, phrase_feature_dim,
                              plh, 'test')
     model = setup_model(args, phrase_plh, region_plh, train_phase_plh,
                         labels_plh, num_boxes_plh, is_conf_plh, neg_region_plh, gt_plh)
     if args.test:
-        test(model, test_loader, model_name=args.resume)
+        test(plh, model, test_loader, model_name=args.resume)
         sys.exit()
 
     save_model_directory = os.path.join('runs', args.name)
@@ -101,9 +101,9 @@ def main():
         os.makedirs(save_model_directory)
 
     confusion_matrix = {}
-    train_loader = TorchDataLoader(args, region_feature_dim, phrase_feature_dim,
+    train_loader = TorchDataLoader(args, args.region_feature_dim, phrase_feature_dim,
                                    plh, 'train', confusion_matrix)
-    val_loader = DataLoader(args, region_feature_dim, phrase_feature_dim,
+    val_loader = DataLoader(args, args.region_feature_dim, phrase_feature_dim,
                             plh, 'val')
 
     # training with Adam
@@ -116,12 +116,12 @@ def main():
     best_epoch = best_adam + best_sgd
 
     # get performance on test set
-    test_acc = test(model, test_loader, model_name=best_model_filename)
+    test_acc = test(plh, model, test_loader, model_name=best_model_filename)
     print('best model at epoch {}: {:.2f}% (val {:.2f}%)'.format(
         best_epoch, round(test_acc * 100, 2), round(acc * 100, 2)))
 
 
-def test(model, test_loader, sess=None, model_name=None):
+def test(plh, model, test_loader, sess=None, model_name=None):
     if sess is None:
         sess = tf.Session()
         saver = tf.train.Saver()
@@ -132,6 +132,11 @@ def test(model, test_loader, sess=None, model_name=None):
     n_iterations = test_loader.num_batches()
     for batch_id in range(n_iterations):
         feed_dict, gt_labels, num_pairs = test_loader.get_batch(batch_id)
+
+        feed_dict[plh['is_conf_plh']] = np.zeros([args.batch_size])
+        feed_dict[plh['neg_region_plh']] = np.zeros([args.batch_size, args.neg_region_num, args.region_feature_dim])
+        feed_dict[plh['gt_plh']] = np.zeros([args.batch_size, 1, args.region_feature_dim])
+
         scores = sess.run(region_weights, feed_dict=feed_dict)
         for pair_index in range(num_pairs):
             best_region_index = np.argmax(scores[pair_index, :])
@@ -186,11 +191,8 @@ def process_epoch(plh, model, train_loader, sess, train_step, epoch, suffix, con
     trainLoader = torch.utils.data.DataLoader(train_loader, batch_sampler = batch_sa , num_workers=6)
 
     for i, (phrase_features, region_features, is_train, max_boxes,
-            gt_labels, phrase_name, neg_regions, gt_features, is_conf_plh, time1, time2, time3, time4, time5) in enumerate(trainLoader):
-        np.save('time11.npy', time1)
-        np.save('time22.npy',time2)
+            gt_labels, phrase_name, neg_regions, gt_features, is_conf_plh) in enumerate(trainLoader):
 
-        print("p1: ", time1.sum(), "p2: ", time2.sum(), "p3: ", time3.sum(),"p4: ", time4.sum(),"p5: ", time5.sum())
         feed_dict = {plh['phrase']: phrase_features,
                      plh['region']: region_features,
                      plh['train_phase']: is_train[0],
@@ -228,8 +230,8 @@ def process_epoch(plh, model, train_loader, sess, train_step, epoch, suffix, con
                     if phrase_name[index] in confusion_matrix.keys():
                         del confusion_matrix[phrase_name[index]]
         if i % args.info_iterval == 0:
-            print('loss: {:.5f} (region: {:.5f} concept: {:.5f}) '
-                  '[{}/{}] (epoch: {}) {}'.format(total, region, concept_l1,
+            print('loss: {:.5f} (region: {:.5f} concept: {:.5f}) concept: {:.5f}) concept: {:.5f} concept: {:.5f})'
+                  '[{}/{}] (epoch: {}) {}'.format(total, region, concept_l1, dgt_p, dneg_p, TriLoss,
                                                   (i * args.batch_size),
                                                   len(train_loader), epoch,
                                                   suffix))

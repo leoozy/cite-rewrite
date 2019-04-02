@@ -90,23 +90,23 @@ class TorchDataLoader(Dataset):
 
             # phrase instance identifier
             p_id = self.pairs[2][index]
-            start1 = time.time()
+           # start1 = time.time()
             # gets region features
             features = np.array(dataset[im_id], np.float32)
-            start2 = time.time()
+            #start2 = time.time()
             num_boxes = min(len(features), self.max_boxes)
-            start3 = time.time()
+            #start3 = time.time()
             features = features[:num_boxes, :self.region_feature_dim]
-            start4 = time.time()
+           # start4 = time.time()
             overlaps = np.array(dataset['%s_%s_%s' % (im_id, phrase, p_id)])
-            start5 = time.time()
+            #start5 = time.time()
             # last 4 dimensions of overlaps are ground truth box coordinates
             assert (num_boxes <= len(overlaps) - 4)
             overlaps = overlaps[:num_boxes]
             region_features[:num_boxes, :] = features
             phrase_features[:] = self.w2v_dict[phrase]
             gt_labels[:num_boxes] = overlaps >= self.success_thresh
-            start6 = time.time()
+            #start6 = time.time()
             neg_regions = []
             gt_features = []
             is_conf_plh = self.args.confusion
@@ -142,14 +142,8 @@ class TorchDataLoader(Dataset):
             is_conf_plh = 0.
 
 
-        time1 = start2 - start1
-        time2 = start3 - start2
-        time3 = start4 - start3
-        time4 = start5 - start4
-        time5 = start6 - start5
 
-
-        return phrase_features, region_features, self.is_train, self.max_boxes, gt_labels, phrase_name, neg_regions, gt_features, is_conf_plh, time1, time2, time3, time4, time5
+        return phrase_features, region_features, self.is_train, self.max_boxes, gt_labels, phrase_name, neg_regions, gt_features, is_conf_plh
         #return phrase_features, region_features, self.is_train, self.max_boxes, gt_labels
 
 
