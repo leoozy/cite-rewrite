@@ -21,7 +21,7 @@ class TorchDataLoader(Dataset):
         """
 
         self.dataset = None
-        self.datafn = os.path.join('../', '%s_imfeats.h5' % split)
+        self.datafn = os.path.join('/temphome/zhangjl', '%s_imfeats.h5' % split)
         with h5py.File(self.datafn, 'r', swmr=True) as dataset:
 
             vecs = np.array(dataset['phrase_features'], np.float32)

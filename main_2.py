@@ -144,15 +144,28 @@ def test(model, test_loader, sess=None, model_name=None):
 
 def getBatchSampler():
     length = 427226
-    chunk_size = 0
-    raw_ind = [l for l in range(length)]
-    num_batch = length // args.batch_size
-    shuffle(raw_ind)
+
+
     shu_batch = []
+    chunk_size = 5000
+    num_chunk_size = length // chunk_size
+    for chunk in range(num_chunk_size):
+        raw_ind = [r for r in range(chunk_size*chunk, (chunk + 1)*chunk_size)]
+        num_batch = len(raw_ind) // args.batch_size
+        shuffle(raw_ind)
+        i = 0
+        for i in range(num_batch):
+            temp = raw_ind[i*args.batch_size: (i+1)*args.batch_size]
+            shu_batch.append(temp)
+        shu_batch.append(raw_ind[(i+1)*args.batch_size:])
+    raw_ind = [r for r in range((chunk + 1)*chunk_size, length)]
+    num_batch = len(raw_ind) // args.batch_size
+    shuffle(raw_ind)
+    i = 0
     for i in range(num_batch):
-        temp = raw_ind[i*args.batch_size: (i+1)*args.batch_size]
+        temp = raw_ind[i * args.batch_size: (i + 1) * args.batch_size]
         shu_batch.append(temp)
-    shu_batch.append(raw_ind[(i+1)*args.batch_size:])
+    shu_batch.append(raw_ind[(i + 1) * args.batch_size:])
     return shu_batch
 
 
@@ -269,5 +282,5 @@ def train(plh, model, train_loader, test_loader, model_weights, use_adam=True,
 
 if __name__ == '__main__':
     # tf.device('/gpu:1')
-    os.environ['CUDA_VISIBLE_DEVICES'] = '1'
+    os.environ['CUDA_VISIBLE_DEVICES'] = '0'
     main()
