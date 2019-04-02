@@ -115,7 +115,7 @@ def setup_model(args, phrase_plh, region_plh, train_phase_plh, labels_plh, num_b
     gt_region_embed = region_embed_raw[:, -1, :]
     # dgt_p = tf.expand_dims(phrase_embed, 1) * tf.expand_dims(gt_region_embed, 1)
     # dp_neg = tf.expand_dims(phrase_embed, 1)
-    dgt_p = cos_distance(phrase_embed, gt_region_embed, is_conf_plh)
+    dgt_p = tf(phrase_embed, gt_region_embed, is_conf_plh)
     dneg_p = cos_distance(tf.expand_dims(phrase_embed, 1), neg_region_embed,  is_conf_plh)
 
     LossTrp = tf.maximum(0.00, 0.02 + dgt_p - dneg_p)
@@ -143,5 +143,5 @@ def setup_model(args, phrase_plh, region_plh, train_phase_plh, labels_plh, num_b
     num_samples = tf.reduce_sum(ind_labels)
     region_loss = tf.reduce_sum(tf.log(1 + tf.exp(-joint_embed_3 * labels_plh)) * ind_labels) / num_samples
     total_loss = region_loss + concept_loss * args.embed_l1 +  LossTrp
-    return total_loss, region_loss, concept_loss, region_prob, dneg_p,dgt_p, LossTrp
+    return total_loss, region_loss, concept_loss, region_prob, dneg_p,dgt_p, LossTrp, phrase_embed, gt_region_embed, neg_region_embed
 

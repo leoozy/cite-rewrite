@@ -4,7 +4,7 @@ import os
 
 class DataLoader:
     """Class minibatches from data on disk in HDF5 format"""
-    def __init__(self, args, region_dim, phrase_dim, plh, split):
+    def __init__(self, args, region_dim, phrase_dim, plh, split, show = None):
         """Constructor
 
         Arguments:
@@ -29,7 +29,7 @@ class DataLoader:
         self.pairs = list(self.data['pairs'])
         self.n_pairs = len(self.pairs[0])
         self.pair_index = range(self.n_pairs)
-
+        self.show = show
         self.split = split
         self.plh = plh
         self.is_train = split == 'train'
@@ -75,6 +75,8 @@ class DataLoader:
                              dtype=np.float32)
         phrase_features = np.zeros((self.batch_size, self.phrase_feature_dim),
                                    dtype=np.float32)
+        im_id = None
+        phrase = None
         for pair_id in range(num_pairs):
             sample_id = self.pair_index[start_pair + pair_id]
 
@@ -116,6 +118,9 @@ class DataLoader:
                      self.plh['num_boxes'] : self.max_boxes,
                      self.plh['labels'] : gt_labels
         }
+        if self.split == "test":
 
-        return feed_dict, gt_labels, num_pairs
+            return feed_dict, gt_labels, num_pairs, im_id, phrase
+        else:
+            return feed_dict, gt_labels, num_pairs
 

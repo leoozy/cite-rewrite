@@ -9,7 +9,7 @@ from model_ne import setup_model
 from torch_data_loader_ne import TorchDataLoader
 from data_loader import DataLoader
 from random import shuffle
-import torch.multiprocessing as mp
+import  cv2
 import pdb
 
 parser = argparse.ArgumentParser(description='Conditional Image-Text Similarity Network')
@@ -25,7 +25,7 @@ parser.add_argument('--resume', default='model_best', type=str,
                     help='filename of model to load (default: none)')
 parser.add_argument('--test', dest='test', action='store_true', default=False,
                     help='Run model on test set')
-parser.add_argument('--batch-size', type=int, default=50,
+parser.add_argument('--batch-size', type=int, default=10,
                     help='input batch size for training (default: 200)')
 parser.add_argument('--lr', type=float, default=5e-6, metavar='LR',
                     help='learning rate (default: 5e-6)')
@@ -120,6 +120,11 @@ def main():
     print('best model at epoch {}: {:.2f}% (val {:.2f}%)'.format(
         best_epoch, round(test_acc * 100, 2), round(acc * 100, 2)))
 
+def show_res(image_id, phrase_name, overlaps):
+    imageDir = ""
+    best = 10
+    imagepath = os.path.join(imageDir, image_id+".jpg")
+    im = cv2.imread(imagepath)
 
 def test(plh, model, test_loader, sess=None, model_name=None):
     if sess is None:
@@ -131,7 +136,7 @@ def test(plh, model, test_loader, sess=None, model_name=None):
     correct = 0.0
     n_iterations = test_loader.num_batches()
     for batch_id in range(n_iterations):
-        feed_dict, gt_labels, num_pairs = test_loader.get_batch(batch_id)
+        feed_dict, gt_labels, num_pairs, image_id, phrase_name = test_loader.get_batch(batch_id)
 
         feed_dict[plh['is_conf_plh']] = np.zeros([args.batch_size])
         feed_dict[plh['neg_region_plh']] = np.zeros([args.batch_size, args.neg_region_num, args.region_feature_dim])
@@ -157,7 +162,7 @@ def getBatchSampler():
     for chunk in range(num_chunk_size):
         raw_ind = [r for r in range(chunk_size*chunk, (chunk + 1)*chunk_size)]
         num_batch = len(raw_ind) // args.batch_size
-        shuffle(raw_ind)
+       # shuffle(raw_ind)
         i = 0
         for i in range(num_batch):
             temp = raw_ind[i*args.batch_size: (i+1)*args.batch_size]
@@ -183,10 +188,13 @@ def process_epoch(plh, model, train_loader, sess, train_step, epoch, suffix, con
     dneg_p = model[4]
     dgt_p = model[5]
     LossTrp = model[6]
+    phrase_embed = model[7]
+    gt_region_embed = model[8]
+    neg_region_embed = model[9]
     if epoch > 1:
-        args.confusion = 0.
+        args.confusion = 1.
     else:
-        args.confusion = 0.
+        args.confusion = 1.
     batch_sa = getBatchSampler()
     trainLoader = torch.utils.data.DataLoader(train_loader, batch_sampler = batch_sa , num_workers=6)
 
@@ -202,14 +210,18 @@ def process_epoch(plh, model, train_loader, sess, train_step, epoch, suffix, con
                      plh['neg_region_plh']: neg_regions,
                      plh['gt_plh']: gt_features
                      }
-
-        (_, total, region, concept_l1, region_pro, P2neg, p2gt, TriLoss) = sess.run([train_step, loss,
+     #   np.save("neg_region_plh.npy", neg_regions)
+      #  np.save("gt_plh.npy", gt_features)
+      #  np.save('region.npy', region_features)
+        (_, total, region, concept_l1, region_pro, P2neg, p2gt, TriLoss, phrase, gt, neg) = sess.run([train_step, loss,
                                                                                      region_loss, l1_loss,
                                                                                      region_weights, dneg_p, dgt_p,
-                                                                                     LossTrp],
+                                                                                     LossTrp, phrase_embed, gt_region_embed, neg_region_embed],
                                                                                     feed_dict=feed_dict)
-        print(time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time())))
-
+       # print(time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time())))
+       # np.save("phrase.npy", phrase)
+       # np.save("gt.npy", gt)
+       # np.save('neg.npy', neg)
         if epoch > 0:
             for index in range(np.shape(region_pro)[0]):
                 best_region_index = np.argmax(region_pro[index, :])
@@ -229,9 +241,10 @@ def process_epoch(plh, model, train_loader, sess, train_step, epoch, suffix, con
                 else:
                     if phrase_name[index] in confusion_matrix.keys():
                         del confusion_matrix[phrase_name[index]]
+            np.save("dict{}_{}.npy".format(epoch, i), confusion_matrix)
         if i % args.info_iterval == 0:
-            print('loss: {:.5f} (region: {:.5f} concept: {:.5f}) concept: {:.5f}) concept: {:.5f} concept: {:.5f})'
-                  '[{}/{}] (epoch: {}) {}'.format(total, region, concept_l1, dgt_p, dneg_p, TriLoss,
+            print('loss: {:.5f} (region: {:.5f} concept: {:.5f}) dgt_p: {:.5f}) dneg_p: {:.5f} Triloss: {:.5f})'
+                  '[{}/{}] (epoch: {}) {}'.format(total, region, concept_l1, p2gt, P2neg, TriLoss,
                                                   (i * args.batch_size),
                                                   len(train_loader), epoch,
                                                   suffix))
@@ -261,7 +274,8 @@ def train(plh, model, train_loader, test_loader, model_weights, use_adam=True,
         if model_weights:
             saver.restore(sess, os.path.join('runs', args.name, model_weights))
             if use_adam:
-                best_acc = test(model, test_loader, sess)
+               # best_acc = test(plh, model, test_loader, sess)
+               pass
 
         # model trains until args.max_epoch is reached or it no longer
         # improves on the validation set
@@ -284,5 +298,7 @@ def train(plh, model, train_loader, test_loader, model_weights, use_adam=True,
 
 if __name__ == '__main__':
     # tf.device('/gpu:1')
-    os.environ['CUDA_VISIBLE_DEVICES'] = '0'
+    os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+    os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
+    #os.environ['CUDA_VISIBLE_DEVICES'] = '0'
     main()
