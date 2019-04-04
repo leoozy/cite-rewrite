@@ -25,11 +25,11 @@ parser.add_argument('--resume', default='model_best', type=str,
                     help='filename of model to load (default: none)')
 parser.add_argument('--test', dest='test', action='store_true', default=False,
                     help='Run model on test set')
-parser.add_argument('--batch-size', type=int, default=10,
+parser.add_argument('--batch-size', type=int, default=200,
                     help='input batch size for training (default: 200)')
 parser.add_argument('--lr', type=float, default=5e-6, metavar='LR',
                     help='learning rate (default: 5e-6)')
-parser.add_argument('--embed_l1', type=float, default=5e-5,
+parser.add_argument('--embed_l1', type=float, default=5e-6,
                     help='weight of the L1 regularization term used on the concept weight branch (default: 5e-5)')
 parser.add_argument('--max_epoch', type=int, default=0,
                     help='maximum number of epochs, less than 1 indicates no limit (default: 0)')
@@ -100,6 +100,7 @@ def main():
     if not os.path.exists(save_model_directory):
         os.makedirs(save_model_directory)
 
+    global confusion_matrix
     confusion_matrix = {}
     train_loader = TorchDataLoader(args, args.region_feature_dim, phrase_feature_dim,
                                    plh, 'train', confusion_matrix)
@@ -107,12 +108,12 @@ def main():
                             plh, 'val')
 
     # training with Adam
-    acc, best_adam = train(plh, model, train_loader, test_loader, args.resume, confusion_matrix=confusion_matrix)
+    acc, best_adam = train(plh, model, train_loader, test_loader, args.resume)
 
     # finetune with SGD after loading the best model trained with Adam
     best_model_filename = os.path.join('runs', args.name, 'model_best')
     acc, best_sgd = train(plh, model, train_loader, test_loader,
-                          best_model_filename, False, acc, confusion_matrix=confusion_matrix)
+                          best_model_filename, False, acc)
     best_epoch = best_adam + best_sgd
 
     # get performance on test set
@@ -152,22 +153,22 @@ def test(plh, model, test_loader, sess=None, model_name=None):
         test_loader.split, round(acc * 100, 2)))
     return acc
 
-def getBatchSampler():
-    length = 427226
-
-
+def getBatchSampler(n):
+    length = n
     shu_batch = []
     chunk_size = 5000
     num_chunk_size = length // chunk_size
     for chunk in range(num_chunk_size):
         raw_ind = [r for r in range(chunk_size*chunk, (chunk + 1)*chunk_size)]
         num_batch = len(raw_ind) // args.batch_size
-       # shuffle(raw_ind)
+        shuffle(raw_ind)
         i = 0
         for i in range(num_batch):
             temp = raw_ind[i*args.batch_size: (i+1)*args.batch_size]
             shu_batch.append(temp)
-        shu_batch.append(raw_ind[(i+1)*args.batch_size:])
+        if len(raw_ind[(i+1)*args.batch_size:]) > 1:
+            shu_batch.append(raw_ind[(i+1)*args.batch_size:])
+
     raw_ind = [r for r in range((chunk + 1)*chunk_size, length)]
     num_batch = len(raw_ind) // args.batch_size
     shuffle(raw_ind)
@@ -175,12 +176,14 @@ def getBatchSampler():
     for i in range(num_batch):
         temp = raw_ind[i * args.batch_size: (i + 1) * args.batch_size]
         shu_batch.append(temp)
-    shu_batch.append(raw_ind[(i + 1) * args.batch_size:])
+    if len(raw_ind[(i + 1) * args.batch_size:]) > 1:
+        shu_batch.append(raw_ind[(i + 1) * args.batch_size:])
     return shu_batch
 
 
-def process_epoch(plh, model, train_loader, sess, train_step, epoch, suffix, confusion_matrix=None):
+def process_epoch(plh, model, train_loader, sess, train_step, epoch, suffix):
     # extract elements from model tuple
+    global confusion_matrix
     loss = model[0]
     region_loss = model[1]
     l1_loss = model[2]
@@ -192,15 +195,15 @@ def process_epoch(plh, model, train_loader, sess, train_step, epoch, suffix, con
     gt_region_embed = model[8]
     neg_region_embed = model[9]
     if epoch > 1:
-        args.confusion = 1.
+        args.confusion = 1.5
     else:
-        args.confusion = 1.
-    batch_sa = getBatchSampler()
-    trainLoader = torch.utils.data.DataLoader(train_loader, batch_sampler = batch_sa , num_workers=6)
+        args.confusion = 0
+    batch_sa = getBatchSampler(len(train_loader))
 
+    trainLoader = torch.utils.data.DataLoader(train_loader, batch_sampler=batch_sa, num_workers=6)
     for i, (phrase_features, region_features, is_train, max_boxes,
             gt_labels, phrase_name, neg_regions, gt_features, is_conf_plh) in enumerate(trainLoader):
-
+	#print(i)
         feed_dict = {plh['phrase']: phrase_features,
                      plh['region']: region_features,
                      plh['train_phase']: is_train[0],
@@ -210,19 +213,14 @@ def process_epoch(plh, model, train_loader, sess, train_step, epoch, suffix, con
                      plh['neg_region_plh']: neg_regions,
                      plh['gt_plh']: gt_features
                      }
-     #   np.save("neg_region_plh.npy", neg_regions)
-      #  np.save("gt_plh.npy", gt_features)
-      #  np.save('region.npy', region_features)
+
         (_, total, region, concept_l1, region_pro, P2neg, p2gt, TriLoss, phrase, gt, neg) = sess.run([train_step, loss,
                                                                                      region_loss, l1_loss,
                                                                                      region_weights, dneg_p, dgt_p,
                                                                                      LossTrp, phrase_embed, gt_region_embed, neg_region_embed],
                                                                                     feed_dict=feed_dict)
-       # print(time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time())))
-       # np.save("phrase.npy", phrase)
-       # np.save("gt.npy", gt)
-       # np.save('neg.npy', neg)
-        if epoch > 0:
+
+        if epoch % 3 == 0 or epoch == 1:
             for index in range(np.shape(region_pro)[0]):
                 best_region_index = np.argmax(region_pro[index, :])
                 if gt_labels[index, best_region_index] != 1:
@@ -241,7 +239,8 @@ def process_epoch(plh, model, train_loader, sess, train_step, epoch, suffix, con
                 else:
                     if phrase_name[index] in confusion_matrix.keys():
                         del confusion_matrix[phrase_name[index]]
-            np.save("dict{}_{}.npy".format(epoch, i), confusion_matrix)
+            train_loader.confusion_matrix = confusion_matrix
+            np.save("dict_epoch{}.npy".format(epoch), confusion_matrix)
         if i % args.info_iterval == 0:
             print('loss: {:.5f} (region: {:.5f} concept: {:.5f}) dgt_p: {:.5f}) dneg_p: {:.5f} Triloss: {:.5f})'
                   '[{}/{}] (epoch: {}) {}'.format(total, region, concept_l1, p2gt, P2neg, TriLoss,
@@ -252,7 +251,7 @@ def process_epoch(plh, model, train_loader, sess, train_step, epoch, suffix, con
 
 
 def train(plh, model, train_loader, test_loader, model_weights, use_adam=True,
-          best_acc=0., confusion_matrix=None):
+          best_acc=0.):
     sess = tf.Session()
     if use_adam:
         optim = tf.train.AdamOptimizer(args.lr)
@@ -274,16 +273,18 @@ def train(plh, model, train_loader, test_loader, model_weights, use_adam=True,
         if model_weights:
             saver.restore(sess, os.path.join('runs', args.name, model_weights))
             if use_adam:
-               # best_acc = test(plh, model, test_loader, sess)
-               pass
+               #best_acc = test(plh, model, test_loader, sess)
+		best_acc = 0.6052
+     
 
         # model trains until args.max_epoch is reached or it no longer
         # improves on the validation set
         while (epoch - best_epoch) < args.no_gain_stop and (args.max_epoch < 1 or epoch <= args.max_epoch):
-            process_epoch(plh, model, train_loader, sess, train_step, epoch, suffix,  confusion_matrix)
+            process_epoch(plh, model, train_loader, sess, train_step, epoch, suffix)
             saver.save(sess, os.path.join('runs', args.name, 'checkpoint'),
                        global_step=epoch)
-            acc = test(model, test_loader, sess)
+            acc = test(plh, model, test_loader, sess)
+
             if acc > best_acc:
                 saver.save(sess, os.path.join('runs', args.name, 'model_best'))
                 if (acc - args.minimum_gain) > best_acc:
@@ -298,7 +299,7 @@ def train(plh, model, train_loader, test_loader, model_weights, use_adam=True,
 
 if __name__ == '__main__':
     # tf.device('/gpu:1')
-    os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-    os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
-    #os.environ['CUDA_VISIBLE_DEVICES'] = '0'
+   # os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+   # os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
+    os.environ['CUDA_VISIBLE_DEVICES'] = '0'
     main()

@@ -73,7 +73,9 @@ def embedding_branch(x, embed_dim, train_phase_plh, scope_in, do_l2norm=True, ou
 
 def Euclidean_distance(x1, x2, is_conf_plh):
     # x1 = [batch, num, dim]
-    euclidean = tf.reduce_mean(tf.sqrt(tf.reduce_sum(tf.square(x1 - x2), axis = -1)) * is_conf_plh)
+    euclidean_raw = tf.reduce_mean(tf.sqrt(tf.reduce_sum(tf.square(x1 - x2), axis = -1)), axis=-1)* is_conf_plh
+    num_nonzero = tf.count_nonzero(euclidean_raw, dtype= tf.float32)
+    euclidean = tf.reduce_sum(euclidean_raw) / (num_nonzero+1e-9)
     return euclidean
 
 def cos_distance(x1, x2, is_conf_plh):
@@ -115,10 +117,10 @@ def setup_model(args, phrase_plh, region_plh, train_phase_plh, labels_plh, num_b
     gt_region_embed = region_embed_raw[:, -1, :]
     # dgt_p = tf.expand_dims(phrase_embed, 1) * tf.expand_dims(gt_region_embed, 1)
     # dp_neg = tf.expand_dims(phrase_embed, 1)
-    dgt_p = tf(phrase_embed, gt_region_embed, is_conf_plh)
-    dneg_p = cos_distance(tf.expand_dims(phrase_embed, 1), neg_region_embed,  is_conf_plh)
+    dgt_p = Euclidean_distance(tf.expand_dims(phrase_embed, 1), gt_region_embed, is_conf_plh)
+    dneg_p = Euclidean_distance(tf.expand_dims(phrase_embed, 1), neg_region_embed,  is_conf_plh)
 
-    LossTrp = tf.maximum(0.00, 0.02 + dgt_p - dneg_p)
+    LossTrp = tf.maximum(0.00, (0.2 + dgt_p - dneg_p)*tf.reduce_max(is_conf_plh))
     concept_weights = embedding_branch(phrase_plh, embed_dim, train_phase_plh, 'concept_weight',
                                        do_l2norm=False, outdim=args.num_embeddings)
     concept_loss = tf.reduce_mean(tf.norm(concept_weights, axis=1, ord=1))

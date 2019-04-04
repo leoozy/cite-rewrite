@@ -9,24 +9,10 @@
           </mappings>
         </serverdata>
       </paths>
-      <paths name="zhangjl@202.118.239.147:23">
+      <paths name="zjl@202.118.239.147:22">
         <serverdata>
           <mappings>
-            <mapping local="$PROJECT_DIR$" web="/" />
-          </mappings>
-        </serverdata>
-      </paths>
-      <paths name="zhangjl@202.118.239.147:23 (1)">
-        <serverdata>
-          <mappings>
-            <mapping local="$PROJECT_DIR$" web="/" />
-          </mappings>
-        </serverdata>
-      </paths>
-      <paths name="zhangjl@202.118.239.147:23 (2)">
-        <serverdata>
-          <mappings>
-            <mapping local="$PROJECT_DIR$" web="/" />
+            <mapping deploy="/home/zjl/textImage/cite" local="$PROJECT_DIR$" web="/" />
           </mappings>
         </serverdata>
       </paths>

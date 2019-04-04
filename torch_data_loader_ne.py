@@ -96,9 +96,17 @@ class TorchDataLoader(Dataset):
             #start2 = time.time()
             num_boxes = min(len(features), self.max_boxes)
             #start3 = time.time()
+            spatial = features[0, -9:]
+            xmin = spatial[-4]
+            ymin = spatial[-3]
+            W = xmin / spatial[-9]
+            H = ymin / spatial[-8]
+
             features = features[:num_boxes, :self.region_feature_dim]
            # start4 = time.time()
             overlaps = np.array(dataset['%s_%s_%s' % (im_id, phrase, p_id)])
+            gt_box = overlaps[-4:]
+            spatial_feature = [gt_box[0]/W, gt_box[1]/H, gt_box[2]/W, gt_box[3]/H, (gt_box[3]-gt_box[1])*(gt_box[2] - gt_box[0])/(W*H)]
             #start5 = time.time()
             # last 4 dimensions of overlaps are ground truth box coordinates
             assert (num_boxes <= len(overlaps) - 4)
@@ -107,8 +115,8 @@ class TorchDataLoader(Dataset):
             phrase_features[:] = self.w2v_dict[phrase]
             gt_labels[:num_boxes] = overlaps >= self.success_thresh
             #start6 = time.time()
-            neg_regions = []
-            gt_features = []
+            neg_regions = np.zeros([self.args.neg_region_num, self.region_feature_dim])
+            #gt_features = np.zeros([1,self.region_feature_dim])
             is_conf_plh = self.args.confusion
 
          #   print(time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time())))
@@ -127,12 +135,16 @@ class TorchDataLoader(Dataset):
         if self.args.confusion != 0.:
             if phrase_name in self.confusion_matrix.keys():
 
-                for neg_region_id in self.confusion_matrix[phrase_name]:
-                            neg_regions.append(region_features[neg_region_id, :])
-            try:
-                gt_features = np.load(os.path.join(self.gtFeaturePath, phrase_name+'.npy'))
-            except Exception, e:
-                print(e)
+                for id, neg_region_id in enumerate(self.confusion_matrix[phrase_name]):
+                            neg_regions[id] = region_features[neg_region_id, :]
+                try:
+                    gt_features = np.load(os.path.join(self.gtFeaturePath, phrase_name+'.npy'))
+                    gt_features = np.append(gt_features, spatial_feature)
+                    gt_features = np.expand_dims(gt_features, axis= 0)
+
+                except Exception, e:
+                    print(e)
+
             else:
                 neg_regions = np.zeros([self.args.neg_region_num, self.region_feature_dim])
                 gt_features = np.zeros([1, self.region_feature_dim])
@@ -140,7 +152,6 @@ class TorchDataLoader(Dataset):
             neg_regions = np.zeros([self.args.neg_region_num, self.region_feature_dim])
             gt_features = np.zeros([1, self.region_feature_dim])
             is_conf_plh = 0.
-
 
 
         return phrase_features, region_features, self.is_train, self.max_boxes, gt_labels, phrase_name, neg_regions, gt_features, is_conf_plh
